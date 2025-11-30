@@ -147,24 +147,32 @@ class PaymentController extends Controller
     {
         $methods = [
             [
+                'code' => 'yape',
+                'name' => 'Yape',
                 'value' => 'yape',
                 'label' => 'Yape',
                 'description' => 'Pago con Yape',
                 'instructions' => 'Se generará un número al cual enviar el pago'
             ],
             [
+                'code' => 'plin',
+                'name' => 'Plin',
                 'value' => 'plin',
                 'label' => 'Plin',
                 'description' => 'Pago con Plin',
                 'instructions' => 'Se generará un número al cual enviar el pago'
             ],
             [
+                'code' => 'credit_card',
+                'name' => 'Tarjeta de Crédito',
                 'value' => 'credit_card',
                 'label' => 'Tarjeta de Crédito',
                 'description' => 'Pago con tarjeta de crédito',
                 'instructions' => 'Ingresa los datos de tu tarjeta'
             ],
             [
+                'code' => 'cash',
+                'name' => 'Efectivo',
                 'value' => 'cash',
                 'label' => 'Efectivo',
                 'description' => 'Pagar en el comedor',

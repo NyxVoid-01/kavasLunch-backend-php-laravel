@@ -2,6 +2,33 @@
 
 API RESTful para el sistema de gestión del comedor universitario KAVAS-LUNCH. Construido con Laravel 11.
 
+## 🚀 Inicio Rápido con Docker
+
+**Para nuevos desarrolladores**: Lee la [**Guía de Configuración Docker (DOCKER_SETUP.md)**](./DOCKER_SETUP.md)
+
+### Instalación Rápida
+
+```powershell
+# 1. Clonar y navegar al proyecto
+git clone <URL_DEL_REPOSITORIO>
+cd kavasLunch-backend-php-laravel
+
+# 2. Configurar entorno
+Copy-Item .env.example .env
+
+# 3. Levantar contenedores (automáticamente instala dependencias y migra DB)
+docker compose up -d --build
+
+# 4. Ver progreso de inicialización
+docker compose logs backend -f
+```
+
+**URLs disponibles:**
+- API: http://localhost:8000
+- MailHog: http://localhost:8025
+
+---
+
 ## 🔐 Autenticación
 
 El sistema utiliza **JWT (JSON Web Tokens)**.

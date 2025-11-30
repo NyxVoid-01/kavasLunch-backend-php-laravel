@@ -22,19 +22,13 @@ RUN groupadd -g ${GID} laravel && \
 
 WORKDIR /var/www/html
 
-# Copiar archivos del proyecto
-COPY . .
-
-# Configurar permisos para Laravel
-RUN mkdir -p /var/www/html/storage /var/www/html/bootstrap/cache \
-    && chown -R laravel:laravel /var/www/html \
-    && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
+# Copiar scripts de inicialización
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Cambiar al usuario laravel
 USER laravel
 
-# Instalar dependencias como usuario laravel
-RUN composer install --no-interaction --prefer-dist --optimize-autoloader
-
 EXPOSE 9000
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["php-fpm"]

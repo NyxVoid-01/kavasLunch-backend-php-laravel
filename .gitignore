@@ -1,16 +1,29 @@
+# Logs
 *.log
+/storage/logs/*.log
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Environment
 .env
 .env.backup
 .env.production
+
+# PHP
 .phpactor.json
 .phpunit.result.cache
+/.phpunit.cache
+
+# IDE
 /.fleet
 /.idea
 /.nova
-/.phpunit.cache
 /.vscode
 /.zed
+
+# Laravel
 /auth.json
 /node_modules
 /public/build
@@ -21,5 +34,7 @@
 /vendor
 Homestead.json
 Homestead.yaml
-Thumbs.db
+
+# Docker (opcional - descomentar si quieres versionar docker-compose)
+# docker-compose.override.yml
 

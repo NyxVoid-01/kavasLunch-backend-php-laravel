@@ -294,10 +294,15 @@ class ReservationController extends Controller
             'success' => true,
             'data' => [
                 'date' => $date->format('Y-m-d'),
-                'available_slots' => $availableSlots->map(function ($slot) {
+                'available_slots' => $availableSlots->map(function ($slot) use ($date) {
+                    $used = $this->timeSlotService->getSlotCapacity($slot, $date);
+                    $available = \App\Services\TimeSlotService::MAX_CAPACITY_PER_SLOT - $used;
+                    
                     return [
                         'time' => $slot->format('H:i'),
                         'datetime' => $slot->format('Y-m-d H:i:s'),
+                        'capacity_available' => $available,
+                        'capacity_used' => $used,
                     ];
                 })
             ]

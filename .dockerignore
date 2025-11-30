@@ -1,0 +1,62 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+README.md
+CHANGELOG.md
+LICENSE
+
+# IDE & Editor
+.vscode
+.idea
+.fleet
+.nova
+.zed
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# Laravel
+/storage/*.key
+/storage/pail
+.env.backup
+.env.production
+.phpunit.result.cache
+/public/hot
+/public/storage
+auth.json
+Homestead.json
+Homestead.yaml
+
+# Tests
+/tests
+phpunit.xml
+.phpunit.cache
+
+# Vendor (se reinstalará en la imagen)
+/vendor
+
+# Docker
+docker-compose.yml
+docker-compose.*.yml
+Dockerfile
+.dockerignore
+
+# Logs
+*.log
+/storage/logs/*.log
+
+# Cache
+/bootstrap/cache/*.php
