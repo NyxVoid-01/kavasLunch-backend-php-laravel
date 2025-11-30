@@ -35,9 +35,13 @@ fi
 if [ ! -f "storage/app/migrations_done" ]; then
     echo "🗄️  Ejecutando migraciones..."
     php artisan migrate --force
+    
+    echo "📊 Cargando data inicial..."
+    php artisan db:seed --force
+    
     mkdir -p storage/app
     touch storage/app/migrations_done
-    echo "✅ Migraciones completadas!"
+    echo "✅ Migraciones y seeders completados!"
 else
     echo "✅ Migraciones ya ejecutadas!"
 fi
