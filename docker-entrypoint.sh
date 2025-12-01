@@ -53,7 +53,7 @@ php artisan route:clear
 php artisan view:clear
 echo "✅ Caché limpiado!"
 
-echo "🎉 Backend listo! Iniciando PHP-FPM..."
+echo "🎉 Backend listo! Iniciando Supervisor (PHP-FPM + Queue Worker)..."
 
-# Ejecutar el comando original (php-fpm)
+# Ejecutar el comando original (supervisord o lo que se pase como argumento)
 exec "$@"

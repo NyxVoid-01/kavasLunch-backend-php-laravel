@@ -10,10 +10,12 @@ class DailyMenuSeeder extends Seeder
 {
     /**
      * Seed daily_menus table with sample weekly menus
+     * Primera semana de diciembre 2025 (Lunes 1 - Viernes 5)
      */
     public function run(): void
     {
-        $startDate = Carbon::now()->startOfWeek();
+        // Primera semana de diciembre 2025: Lunes 1 de diciembre
+        $startDate = Carbon::create(2025, 12, 1);
 
         DB::table('daily_menus')->insert([
             // Lunes

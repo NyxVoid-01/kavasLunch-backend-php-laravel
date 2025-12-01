@@ -121,9 +121,9 @@
         <p>¡Tu reserva ha sido confirmada exitosamente!</p>
 
         <div class="code-box">
-            <p style="margin: 0; color: #666; font-size: 14px;">CÓDIGO DE RESERVA</p>
+            <p style="margin: 0; color: #666; font-size: 14px;">TU CÓDIGO DE RESERVA</p>
             <div class="code">{{ $reservation->code }}</div>
-            <p style="margin: 10px 0 0 0; color: #666; font-size: 12px;">Presenta este código en caja</p>
+            <p style="margin: 10px 0 0 0; color: #666; font-size: 12px;">Presenta este código en caja para recoger tu pedido</p>
         </div>
 
         <div class="info-section">
@@ -133,15 +133,6 @@
             <p style="color: #f59e0b; font-size: 14px;">⏰ Tienes hasta las {{ $reservation->pickup_time_slot->copy()->addMinutes(15)->format('h:i A') }} para recoger tu pedido</p>
             <p><strong>Estado:</strong> <span style="color: #f59e0b;">Pendiente</span></p>
             <p><strong>Método de Pago:</strong> {{ ucfirst($reservation->payment_method) }}</p>
-        </div>
-
-        <div class="code-box">
-            <p style="margin: 0; color: #666; font-size: 14px;">CÓDIGO QR DE RESERVA</p>
-            @if($reservation->qr_code_url)
-                <img src="{{ $reservation->qr_code_url }}" alt="QR Code" style="max-width: 200px; margin: 10px auto; display: block;">
-            @endif
-            <div class="code">{{ $reservation->code }}</div>
-            <p style="margin: 10px 0 0 0; color: #666; font-size: 12px;">Presenta este código o escanea el QR en caja</p>
         </div>
 
         <div class="info-section">
@@ -165,7 +156,7 @@
             <h3>📋 Instrucciones para Recoger</h3>
             <ol>
                 <li>Llega al comedor entre las <strong>{{ $reservation->pickup_time_slot->format('h:i A') }}</strong> y las <strong>{{ $reservation->pickup_time_slot->copy()->addMinutes(15)->format('h:i A') }}</strong></li>
-                <li>Presenta tu código QR o el código <strong>{{ $reservation->code }}</strong> en la caja</li>
+                <li>Presenta tu código de reserva en la caja</li>
                 <li>Si pagaste con Yape/Plin, presenta también tu comprobante de pago</li>
                 <li><strong style="color: #dc2626;">IMPORTANTE:</strong> Si no recoges tu pedido dentro de los 15 minutos, tu reserva expirará automáticamente</li>
             </ol>
