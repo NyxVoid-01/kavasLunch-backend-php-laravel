@@ -156,7 +156,7 @@
             <h3>📋 Instrucciones para Recoger</h3>
             <ol>
                 <li>Llega al comedor entre las <strong>{{ $reservation->pickup_time_slot->format('h:i A') }}</strong> y las <strong>{{ $reservation->pickup_time_slot->copy()->addMinutes(15)->format('h:i A') }}</strong></li>
-                <li>Presenta tu código de reserva en la caja</li>
+                <li>Presenta tu código QR o el código <strong>{{ $reservation->code }}</strong> en la caja</li>
                 <li>Si pagaste con Yape/Plin, presenta también tu comprobante de pago</li>
                 <li><strong style="color: #dc2626;">IMPORTANTE:</strong> Si no recoges tu pedido dentro de los 15 minutos, tu reserva expirará automáticamente</li>
             </ol>
