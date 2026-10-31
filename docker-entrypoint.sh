@@ -46,6 +46,10 @@ else
     echo "✅ Migraciones ya ejecutadas!"
 fi
 
+# Reubicar los menús de prueba en los próximos días laborales (idempotente)
+echo "📅 Actualizando fechas de los menús de prueba..."
+php artisan db:seed --class=DailyMenuSeeder --force
+
 # Limpiar caché
 echo "🧹 Limpiando caché..."
 php artisan config:clear
