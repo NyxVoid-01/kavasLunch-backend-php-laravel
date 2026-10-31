@@ -25,10 +25,12 @@ class WeeklyMenuSeeder extends Seeder
         }
 
         // Configuración de menús por día de la semana
+        // Primera semana de diciembre 2025: 1-5 dic (Lun-Vie)
+        // Segunda semana: 8-12 dic (Lun-Vie)
         $weeklyMenus = [
-            // Lunes
+            // Lunes 1 de diciembre
             [
-                'day_offset' => 0, // Hoy
+                'day_offset' => 0,
                 'appetizer' => 'Ensalada César',
                 'main' => 'Pollo a la Plancha',
                 'drink' => 'Chicha Morada',
@@ -121,7 +123,9 @@ class WeeklyMenuSeeder extends Seeder
         $menusCreated = 0;
 
         foreach ($weeklyMenus as $menuConfig) {
-            $date = Carbon::today()->addDays($menuConfig['day_offset']);
+            // Primera semana de diciembre 2025: Lunes 1 de diciembre
+            $baseDate = Carbon::create(2025, 12, 1);
+            $date = $baseDate->copy()->addDays($menuConfig['day_offset']);
 
             // Buscar los platos
             $appetizer = $appetizers->where('name', $menuConfig['appetizer'])->first();

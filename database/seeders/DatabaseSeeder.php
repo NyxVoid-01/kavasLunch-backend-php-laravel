@@ -12,9 +12,9 @@ class DatabaseSeeder extends Seeder
         $this->command->line('');
 
         $this->call([
-            CompleteUserSeeder::class,
-            CompleteDishSeeder::class,
-            WeeklyMenuSeeder::class,
+            UserSeeder::class,
+            DishSeeder::class,
+            DailyMenuSeeder::class,
         ]);
 
         $this->command->line('');
@@ -26,5 +26,6 @@ class DatabaseSeeder extends Seeder
         $this->command->line('🍽️  Platos: ' . \App\Models\Dish::count());
         $this->command->line('📅 Menús: ' . \App\Models\DailyMenu::count());
         $this->command->line('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        $this->command->warn('🔐 Credenciales: admin@upch.pe / password');
     }
 }

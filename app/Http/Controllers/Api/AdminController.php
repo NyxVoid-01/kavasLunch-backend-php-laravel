@@ -235,11 +235,17 @@ class AdminController extends Controller
             ], 422);
         }
 
-        // Validar que no exista menú para esa fecha
-        if (DailyMenu::whereDate('date', $request->date)->exists()) {
+        // Validar que no exista un menú idéntico (misma fecha y misma combinación de platos)
+        $duplicateMenu = DailyMenu::where('date', $request->date)
+            ->where('appetizer_id', $request->appetizer_id)
+            ->where('main_dish_id', $request->main_dish_id)
+            ->where('drink_id', $request->drink_id)
+            ->exists();
+
+        if ($duplicateMenu) {
             return response()->json([
                 'success' => false,
-                'message' => 'Ya existe un menú para esta fecha'
+                'message' => 'Ya existe un menú con esta misma combinación de platos para esta fecha. Por favor, elige una combinación diferente.'
             ], 400);
         }
 

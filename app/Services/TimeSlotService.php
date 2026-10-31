@@ -103,8 +103,11 @@ class TimeSlotService
      */
     public function getSlotCapacity(Carbon $slot, Carbon $date): int
     {
+        // Comparar solo la hora del datetime (PostgreSQL compatible)
+        $timeString = $slot->format('H:i:s');
+        
         return Reservation::where('reservation_date', $date->toDateString())
-            ->where('pickup_time_slot', $slot)
+            ->whereRaw('CAST(pickup_time_slot AS TIME) = ?', [$timeString])
             ->whereIn('status', ['pending', 'delivered'])
             ->count();
     }
