@@ -96,6 +96,12 @@ class Reservation extends Model
         return asset('storage/' . $this->qr_code_path);
     }
 
+    // Fin del turno de recojo: el turno dura TimeSlotService::SLOT_INTERVAL_MINUTES
+    public function getPickupWindowEndAttribute()
+    {
+        return $this->pickup_time_slot?->copy()->addMinutes(\App\Services\TimeSlotService::SLOT_INTERVAL_MINUTES);
+    }
+
     public function isExpired()
     {
         return $this->status === 'expired' || 
@@ -110,10 +116,27 @@ class Reservation extends Model
 
     public function markAsDelivered()
     {
-        $this->status = 'delivered';
-        $this->delivered_at = now();
-        $this->save();
-        
+        \DB::transaction(function () {
+            $this->status = 'delivered';
+            $this->delivered_at = now();
+
+            // Con pago en efectivo el cobro ocurre al entregar: queda registrado como pagado
+            if ($this->payment_status !== 'paid') {
+                $this->payment_status = 'paid';
+
+                $payment = $this->payment ?? new Payment([
+                    'reservation_id' => $this->id,
+                    'amount' => $this->menu->price,
+                    'method' => $this->payment_method ?? 'cash',
+                ]);
+                $payment->status = 'completed';
+                $payment->transaction_code = $payment->transaction_code ?: 'CASH-' . strtoupper(Str::random(10));
+                $payment->save();
+            }
+
+            $this->save();
+        });
+
         return $this;
     }
 

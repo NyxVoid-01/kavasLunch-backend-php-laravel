@@ -102,7 +102,7 @@ Todas las rutas protegidas (User y Admin) requieren el header:
 ## 📝 Detalles de Uso (Endpoints Clave)
 
 ### 1. Ver Slots Disponibles
-Consulta los horarios y capacidad disponible para una fecha.
+Consulta los turnos de recojo del día con su disponibilidad (también los llenos o terminados, para mostrarlos deshabilitados).
 
 - **GET** `/api/user/reservations/available-slots`
 - **Query Params**:
@@ -114,20 +114,18 @@ Consulta los horarios y capacidad disponible para una fecha.
     "success": true,
     "data": {
         "date": "2025-11-27",
-        "available_slots": [
-            {
-                "time": "11:00",
-                "datetime": "2025-11-27 11:00:00",
-                "capacity_available": 7
-            },
+        "slots": [
+            { "time": "11:00", "datetime": "2025-11-27 11:00:00", "available": false, "capacity_available": 0, "capacity_used": 20 },
+            { "time": "12:00", "datetime": "2025-11-27 12:00:00", "available": true, "capacity_available": 7, "capacity_used": 13 },
             ...
-        ]
+        ],
+        "available_slots": [ /* solo los que tienen "available": true */ ]
     }
 }
 ```
 
 ### 2. Crear Reserva
-Crea una reserva, asigna automáticamente un time slot y genera el código QR.
+Crea una reserva en el turno elegido (o en el siguiente libre si no se envía) y genera el código QR.
 
 - **POST** `/api/user/reservations`
 - **Body**:
@@ -135,6 +133,7 @@ Crea una reserva, asigna automáticamente un time slot y genera el código QR.
 {
     "menu_id": "uuid-del-menu",
     "reservation_date": "2025-11-27", // Opcional, default: hoy
+    "pickup_time_slot": "12:00", // Opcional: turno elegido (11:00, 12:00, 13:00 o 14:00). Si no está disponible responde 422
     "payment_method": "cash" // cash, yape, plin, credit_card
 }
 ```
@@ -147,7 +146,7 @@ Crea una reserva, asigna automáticamente un time slot y genera el código QR.
             "id": "uuid",
             "code": "KL-12345678",
             "pickup_time_slot": "12:00",
-            "pickup_window_end": "12:15",
+            "pickup_window_end": "13:00",
             "qr_code_url": "http://.../qr-codes/qr-KL-12345678.png",
             "status": "pending"
         }
@@ -193,19 +192,26 @@ Marca una reserva como entregada escaneando su código.
 
 ### Gestión de Horarios (Time Slots)
 - **Horario**: 11:00 AM - 3:00 PM
-- **Intervalo**: 15 minutos
-- **Capacidad**: 10 personas por slot
-- **Asignación**: Automática (siguiente slot disponible)
+- **Turnos**: de 1 hora (11:00, 12:00, 13:00 y 14:00); el turno sigue disponible hasta que termina su hora
+- **Capacidad**: 20 personas por turno
+- **Asignación**: la elige el usuario; si no envía turno, se asigna el siguiente libre
+- **Reserva**: para hoy o mañana, de lunes a viernes (hoy, hasta las 15:00)
+
+### Pagos (pasarela simulada, RF-014)
+- `GET /api/user/payment/methods`: Yape / Plin, Tarjeta y Efectivo. El número de Yape sale de `PAYMENT_YAPE_NUMBER`.
+- `POST /api/user/payment/process`: no se capturan datos de tarjeta ni comprobante (es opcional `payment_proof_url`).
+  - **Yape / Plin y Tarjeta**: el pago queda registrado como realizado al confirmar.
+  - **Efectivo**: queda pendiente y se marca como pagado al entregar el pedido.
 
 ### Ciclo de Vida de Reserva
 1. **Pending**: Reserva creada, QR generado.
 2. **Delivered**: Entregada (vía Scan QR o manual).
 3. **Cancelled**: Cancelada por usuario (antes 10AM) o admin.
-4. **Expired**: No recogida 15 min después del slot (Stock liberado automáticamente).
+4. **Expired**: No recogida al terminar su turno (stock liberado automáticamente).
 
 ### Jobs Automáticos
 - **Recordatorio**: Email enviado 10 min antes del slot.
-- **Expiración**: Ejecutado 15 min después del slot si no se ha entregado.
+- **Expiración**: Se ejecuta al terminar el turno si no se ha entregado.
 
 ---
 
@@ -220,7 +226,7 @@ El entorno de desarrollo incluye **Mailhog** para capturar y visualizar todos lo
 ### Correos a Verificar
 1. **Confirmación de Reserva**: Se envía inmediatamente al crear una reserva (`POST /api/user/reservations`). Debe incluir el código QR y el horario asignado.
 2. **Recordatorio de Recojo**: Se envía automáticamente 10 minutos antes de la hora de inicio del slot asignado.
-3. **Notificación de Expiración**: Se envía 15 minutos después del inicio del slot si la reserva no fue marcada como entregada.
+3. **Notificación de Expiración**: Se envía al terminar el turno si la reserva no fue marcada como entregada.
 4. **Cancelación de Reserva**: Se envía inmediatamente al cancelar una reserva (`DELETE /api/user/reservations/{id}/cancel`).
 
 ### Troubleshooting

@@ -31,19 +31,19 @@ else
     echo "⚠️  Archivo .env no encontrado. Por favor copia .env.example a .env"
 fi
 
-# Ejecutar migraciones automáticamente en primera ejecución
+# Migraciones pendientes: en cada arranque, para que las nuevas se apliquen también
+# en bases creadas antes (migrate no repite las que ya corrieron)
+echo "🗄️  Ejecutando migraciones pendientes..."
+php artisan migrate --force
+
+# Data inicial: solo la primera vez
 if [ ! -f "storage/app/migrations_done" ]; then
-    echo "🗄️  Ejecutando migraciones..."
-    php artisan migrate --force
-    
     echo "📊 Cargando data inicial..."
     php artisan db:seed --force
-    
+
     mkdir -p storage/app
     touch storage/app/migrations_done
-    echo "✅ Migraciones y seeders completados!"
-else
-    echo "✅ Migraciones ya ejecutadas!"
+    echo "✅ Data inicial cargada!"
 fi
 
 # Reubicar los menús de prueba en los próximos días laborales (idempotente)

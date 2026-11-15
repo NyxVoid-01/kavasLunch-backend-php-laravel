@@ -118,7 +118,7 @@
         <div class="info-section">
             <h3>📅 Detalles de la Reserva</h3>
             <p><strong>Fecha:</strong> {{ $reservation->reservation_date->format('d/m/Y') }}</p>
-            <p><strong>Horario asignado:</strong> {{ $reservation->pickup_time_slot->format('h:i A') }} - {{ $reservation->pickup_time_slot->copy()->addMinutes(15)->format('h:i A') }}</p>
+            <p><strong>Horario asignado:</strong> {{ $reservation->pickup_time_slot->format('h:i A') }} - {{ $reservation->pickup_window_end->format('h:i A') }}</p>
             <p><strong>Estado:</strong> <span style="color: #dc2626;">Expirada</span></p>
         </div>
 
@@ -137,7 +137,7 @@
 
         <div class="explanation">
             <h3>ℹ️ ¿Qué pasó?</h3>
-            <p>Tu reserva expiró porque no fue recogida dentro de los 15 minutos posteriores a tu horario asignado ({{ $reservation->pickup_time_slot->format('h:i A') }} - {{ $reservation->pickup_time_slot->copy()->addMinutes(15)->format('h:i A') }}).</p>
+            <p>Tu reserva expiró porque no fue recogida dentro de tu horario de recojo ({{ $reservation->pickup_time_slot->format('h:i A') }} - {{ $reservation->pickup_window_end->format('h:i A') }}).</p>
             <p>El stock ha sido liberado automáticamente para que otros estudiantes puedan reservar.</p>
         </div>
 
@@ -146,7 +146,7 @@
             <ul>
                 <li>Asegúrate de llegar dentro de tu horario asignado</li>
                 <li>Recibirás un recordatorio 10 minutos antes</li>
-                <li>Tienes 15 minutos desde tu horario para recoger</li>
+                <li>Recoge tu pedido dentro del horario que elegiste</li>
                 <li>Puedes cancelar hasta las 10:00 AM si no podrás asistir</li>
             </ul>
         </div>

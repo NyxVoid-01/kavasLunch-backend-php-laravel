@@ -29,6 +29,11 @@ return [
         'key' => env('RESEND_KEY'),
     ],
 
+    // Pasarela de pagos simulada: número al que se indica enviar el pago con Yape / Plin
+    'payments' => [
+        'yape_number' => env('PAYMENT_YAPE_NUMBER', '987-654-321'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

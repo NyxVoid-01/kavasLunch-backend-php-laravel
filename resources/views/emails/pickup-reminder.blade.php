@@ -139,7 +139,7 @@
             <h2>¡Tu pedido está listo!</h2>
             <p style="margin: 10px 0; font-size: 16px;">Recógelo en:</p>
             <div class="time">{{ $reservation->pickup_time_slot->format('h:i A') }}</div>
-            <p style="margin: 5px 0; color: #666;">Tienes hasta las {{ $reservation->pickup_time_slot->copy()->addMinutes(15)->format('h:i A') }}</p>
+            <p style="margin: 5px 0; color: #666;">Tienes hasta las {{ $reservation->pickup_window_end->format('h:i A') }}</p>
         </div>
 
         <p>Estimado/a <strong>{{ $reservation->user->full_name }}</strong>,</p>
@@ -173,7 +173,7 @@
             <ol>
                 <li>Dirígete al comedor universitario <strong>ahora</strong></li>
                 <li>Presenta tu código QR o el código <strong>{{ $reservation->code }}</strong> en caja</li>
-                <li>Recoge tu pedido entre <strong>{{ $reservation->pickup_time_slot->format('h:i A') }}</strong> y <strong>{{ $reservation->pickup_time_slot->copy()->addMinutes(15)->format('h:i A') }}</strong></li>
+                <li>Recoge tu pedido entre <strong>{{ $reservation->pickup_time_slot->format('h:i A') }}</strong> y <strong>{{ $reservation->pickup_window_end->format('h:i A') }}</strong></li>
                 @if($reservation->payment_method !== 'cash')
                 <li>Presenta tu comprobante de pago</li>
                 @endif
@@ -181,7 +181,7 @@
         </div>
 
         <div class="warning">
-            <p>⚠️ IMPORTANTE: Si no recoges tu pedido dentro de los 15 minutos, tu reserva expirará automáticamente.</p>
+            <p>⚠️ IMPORTANTE: Si no recoges tu pedido dentro de tu horario de recojo, tu reserva expirará automáticamente.</p>
         </div>
 
         <div class="footer">

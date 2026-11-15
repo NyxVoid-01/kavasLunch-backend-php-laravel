@@ -130,7 +130,7 @@
             <h3>📅 Detalles de tu Reserva</h3>
             <p><strong>Fecha:</strong> {{ $reservation->reservation_date->format('d/m/Y') }}</p>
             <p><strong>Horario de Recojo:</strong> <span style="color: #2563eb; font-size: 18px; font-weight: bold;">{{ $reservation->pickup_time_slot->format('h:i A') }}</span></p>
-            <p style="color: #f59e0b; font-size: 14px;">⏰ Tienes hasta las {{ $reservation->pickup_time_slot->copy()->addMinutes(15)->format('h:i A') }} para recoger tu pedido</p>
+            <p style="color: #f59e0b; font-size: 14px;">⏰ Tienes hasta las {{ $reservation->pickup_window_end->format('h:i A') }} para recoger tu pedido</p>
             <p><strong>Estado:</strong> <span style="color: #f59e0b;">Pendiente</span></p>
             <p><strong>Método de Pago:</strong> {{ ucfirst($reservation->payment_method) }}</p>
         </div>
@@ -155,10 +155,10 @@
         <div class="instructions">
             <h3>📋 Instrucciones para Recoger</h3>
             <ol>
-                <li>Llega al comedor entre las <strong>{{ $reservation->pickup_time_slot->format('h:i A') }}</strong> y las <strong>{{ $reservation->pickup_time_slot->copy()->addMinutes(15)->format('h:i A') }}</strong></li>
+                <li>Llega al comedor entre las <strong>{{ $reservation->pickup_time_slot->format('h:i A') }}</strong> y las <strong>{{ $reservation->pickup_window_end->format('h:i A') }}</strong></li>
                 <li>Presenta tu código QR o el código <strong>{{ $reservation->code }}</strong> en la caja</li>
                 <li>Si pagaste con Yape/Plin, presenta también tu comprobante de pago</li>
-                <li><strong style="color: #dc2626;">IMPORTANTE:</strong> Si no recoges tu pedido dentro de los 15 minutos, tu reserva expirará automáticamente</li>
+                <li><strong style="color: #dc2626;">IMPORTANTE:</strong> Si no recoges tu pedido dentro de tu horario de recojo, tu reserva expirará automáticamente</li>
             </ol>
         </div>
 

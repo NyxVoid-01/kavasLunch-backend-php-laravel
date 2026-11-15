@@ -71,7 +71,7 @@ class ReservationController extends Controller
     }
 
     /**
-     * Crear nueva reserva con time slot automático y QR
+     * Crear nueva reserva con el turno elegido (o el siguiente libre) y QR
      * POST /api/user/reservations
      */
     public function store(Request $request)
@@ -79,6 +79,7 @@ class ReservationController extends Controller
         $validator = Validator::make($request->all(), [
             'menu_id' => 'required|uuid|exists:daily_menus,id',
             'reservation_date' => 'sometimes|date',
+            'pickup_time_slot' => 'sometimes|date_format:H:i',
             'payment_method' => 'sometimes|in:cash,yape,plin,credit_card',
         ]);
 
@@ -98,6 +99,10 @@ class ReservationController extends Controller
 
         try {
             DB::beginTransaction();
+
+            // Serializa las reservas de un mismo día: el cupo por turno se cuenta entre
+            // todos los menús, así que sin esto dos reservas simultáneas podrían pasarse del límite
+            DB::select('SELECT pg_advisory_xact_lock(hashtext(?))', ['reservations:' . $reservationDate->toDateString()]);
 
             // 1. Validar fecha de reserva
             $dateValidation = $this->timeSlotService->validateReservationDate($reservationDate);
@@ -145,13 +150,23 @@ class ReservationController extends Controller
                 ]);
             }
 
-            // 7. Asignar time slot automáticamente
-            $pickupTimeSlot = $this->timeSlotService->assignNextAvailableSlot($menuId, $reservationDate);
-            
-            if (!$pickupTimeSlot) {
-                throw ValidationException::withMessages([
-                    'time_slot' => ['No hay horarios disponibles para esta fecha']
-                ]);
+            // 7. Turno de recojo: el que eligió el usuario o, si no eligió, el siguiente libre
+            if ($request->filled('pickup_time_slot')) {
+                $pickupTimeSlot = $this->timeSlotService->findAvailableSlot($menuId, $reservationDate, $request->pickup_time_slot);
+
+                if (!$pickupTimeSlot) {
+                    throw ValidationException::withMessages([
+                        'pickup_time_slot' => ['El horario seleccionado ya no está disponible']
+                    ]);
+                }
+            } else {
+                $pickupTimeSlot = $this->timeSlotService->assignNextAvailableSlot($menuId, $reservationDate);
+
+                if (!$pickupTimeSlot) {
+                    throw ValidationException::withMessages([
+                        'time_slot' => ['No hay horarios disponibles para esta fecha']
+                    ]);
+                }
             }
 
             // 8. Calcular tiempo de expiración
@@ -288,23 +303,25 @@ class ReservationController extends Controller
         $menuId = $request->menu_id;
         $date = $request->has('date') ? Carbon::parse($request->date) : today();
 
-        $availableSlots = $this->timeSlotService->getAvailableSlots($menuId, $date);
+        // Todos los turnos del día con su disponibilidad: así la pantalla muestra también
+        // los que no se pueden elegir (llenos, terminados o fuera de servicio)
+        $slots = $this->timeSlotService->getSlotsWithAvailability($menuId, $date)
+            ->map(fn ($item) => [
+                'time' => $item['slot']->format('H:i'),
+                'datetime' => $item['slot']->format('Y-m-d H:i:s'),
+                'available' => $item['available'],
+                'capacity_available' => $item['capacity_available'],
+                'capacity_used' => $item['capacity_used'],
+            ])
+            ->values();
 
         return response()->json([
             'success' => true,
             'data' => [
                 'date' => $date->format('Y-m-d'),
-                'available_slots' => $availableSlots->map(function ($slot) use ($date) {
-                    $used = $this->timeSlotService->getSlotCapacity($slot, $date);
-                    $available = \App\Services\TimeSlotService::MAX_CAPACITY_PER_SLOT - $used;
-                    
-                    return [
-                        'time' => $slot->format('H:i'),
-                        'datetime' => $slot->format('Y-m-d H:i:s'),
-                        'capacity_available' => $available,
-                        'capacity_used' => $used,
-                    ];
-                })
+                'slots' => $slots,
+                // Solo los elegibles (se mantiene por compatibilidad)
+                'available_slots' => $slots->where('available', true)->values(),
             ]
         ]);
     }
@@ -348,7 +365,7 @@ class ReservationController extends Controller
                 ->delay($reminderTime);
         }
 
-        // Job de expiración 15 minutos después del slot
+        // Job de expiración: al terminar el turno de recojo
         $expirationTime = $reservation->expired_at;
         ReleaseExpiredReservationStock::dispatch($reservation)
             ->delay($expirationTime);
@@ -365,7 +382,7 @@ class ReservationController extends Controller
             'reservation_date' => $reservation->reservation_date->format('Y-m-d'),
             'pickup_time_slot' => $reservation->pickup_time_slot?->format('H:i'),
             'pickup_time_slot_full' => $reservation->pickup_time_slot?->format('Y-m-d H:i:s'),
-            'pickup_window_end' => $reservation->pickup_time_slot?->copy()->addMinutes(15)->format('H:i'),
+            'pickup_window_end' => $reservation->pickup_window_end?->format('H:i'),
             'expired_at' => $reservation->expired_at?->format('Y-m-d H:i:s'),
             'status' => $reservation->status,
             'payment_method' => $reservation->payment_method,
