@@ -5,12 +5,19 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Tymon\JWTAuth\Facades\JWTAuth;
 
 class AuthController extends Controller
 {
+    const MAX_LOGIN_ATTEMPTS = 5;
+    const LOCKOUT_SECONDS = 900; // 15 minutos
+
+
     public function register(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -69,12 +76,39 @@ class AuthController extends Controller
 
         $credentials = $request->only('email', 'password');
 
+        // Bloqueo temporal: al 5.º intento fallido el acceso queda bloqueado 15 minutos
+        $throttleKey = 'login:' . Str::lower($request->email) . '|' . $request->ip();
+        $lockKey = $throttleKey . ':lock';
+
+        if ($lockedUntil = Cache::get($lockKey)) {
+            $minutes = max(1, (int) ceil(($lockedUntil - time()) / 60));
+
+            return response()->json([
+                'success' => false,
+                'message' => "Demasiados intentos fallidos. Intenta nuevamente en {$minutes} " . ($minutes === 1 ? 'minuto' : 'minutos') . '.'
+            ], 429);
+        }
+
         if (!$token = JWTAuth::attempt($credentials)) {
+            $attempts = RateLimiter::hit($throttleKey, self::LOCKOUT_SECONDS);
+
+            if ($attempts >= self::MAX_LOGIN_ATTEMPTS) {
+                Cache::put($lockKey, time() + self::LOCKOUT_SECONDS, self::LOCKOUT_SECONDS);
+                RateLimiter::clear($throttleKey);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Demasiados intentos fallidos. Tu acceso queda bloqueado por 15 minutos.'
+                ], 429);
+            }
+
             return response()->json([
                 'success' => false,
                 'message' => 'Credenciales incorrectas'
             ], 401);
         }
+
+        RateLimiter::clear($throttleKey);
 
         $user = auth('api')->user();
 
