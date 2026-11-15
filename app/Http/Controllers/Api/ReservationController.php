@@ -38,6 +38,7 @@ class ReservationController extends Controller
             ->where('user_id', $user->id)
             ->orderBy('reservation_date', 'desc')
             ->orderBy('pickup_time_slot', 'desc')
+            ->limit(50) // RF-007: se muestran las últimas 50 reservas
             ->get();
 
         return response()->json([
