@@ -3,10 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Mail\PasswordResetMail;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -17,7 +21,6 @@ class AuthController extends Controller
     const MAX_LOGIN_ATTEMPTS = 5;
     const LOCKOUT_SECONDS = 900; // 15 minutos
 
-
     public function register(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -27,6 +30,7 @@ class AuthController extends Controller
             'password_confirmation' => 'required|same:password',
         ], [
             'email.regex' => 'El correo debe ser del dominio @upch.pe',
+            'password.min' => 'La contraseña debe tener al menos 8 caracteres',
             'password.regex' => 'La contraseña debe tener al menos 8 caracteres, una mayúscula, un número y un carácter especial',
         ]);
 
@@ -121,6 +125,114 @@ class AuthController extends Controller
                 'token_type' => 'bearer',
                 'expires_in' => auth('api')->factory()->getTTL() * 60
             ]
+        ]);
+    }
+
+    /**
+     * Solicitar enlace para restablecer la contraseña
+     * POST /api/auth/forgot-password
+     */
+    public function forgotPassword(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error de validación',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // Misma respuesta exista o no la cuenta, para no revelar qué correos están registrados
+        $response = response()->json([
+            'success' => true,
+            'message' => 'Si el correo está registrado, recibirás un enlace para restablecer tu contraseña.'
+        ]);
+
+        $user = User::where('email', Str::lower($request->email))->first();
+        if (!$user) {
+            return $response;
+        }
+
+        $broker = Password::broker();
+
+        // Evita reenviar si ya se pidió un enlace hace menos de 60 segundos
+        if ($broker->getRepository()->recentlyCreatedToken($user)) {
+            return $response;
+        }
+
+        $token = $broker->createToken($user);
+        $resetUrl = rtrim(config('app.frontend_url'), '/') . '/reset-password?' . http_build_query([
+            'token' => $token,
+            'email' => $user->email,
+        ]);
+
+        try {
+            Mail::to($user->email)->send(
+                new PasswordResetMail($user, $resetUrl, (int) config('auth.passwords.users.expire'))
+            );
+        } catch (\Exception $e) {
+            Log::error('Error sending password reset email: ' . $e->getMessage());
+        }
+
+        return $response;
+    }
+
+    /**
+     * Restablecer la contraseña con el token recibido por correo
+     * POST /api/auth/reset-password
+     */
+    public function resetPassword(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'token' => 'required|string',
+            'email' => 'required|email',
+            'password' => 'required|string|min:8|regex:/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/',
+            'password_confirmation' => 'required|same:password',
+        ], [
+            'password.min' => 'La contraseña debe tener al menos 8 caracteres',
+            'password.regex' => 'La contraseña debe tener al menos 8 caracteres, una mayúscula, un número y un carácter especial',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error de validación',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // El broker valida el token y su vencimiento, y lo elimina al usarlo (un solo uso)
+        $status = Password::reset(
+            [
+                'email' => Str::lower($request->email),
+                'password' => $request->password,
+                'password_confirmation' => $request->password_confirmation,
+                'token' => $request->token,
+            ],
+            function (User $user, string $password) {
+                $user->password = $password; // el cast 'hashed' del modelo la encripta
+                $user->save();
+            }
+        );
+
+        if ($status !== Password::PASSWORD_RESET) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El enlace no es válido o ya venció. Solicita uno nuevo.'
+            ], 422);
+        }
+
+        // Una contraseña nueva levanta cualquier bloqueo por intentos fallidos
+        RateLimiter::clear('login:' . Str::lower($request->email) . '|' . $request->ip());
+        Cache::forget('login:' . Str::lower($request->email) . '|' . $request->ip() . ':lock');
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Tu contraseña fue actualizada. Ya puedes iniciar sesión.'
         ]);
     }
 
