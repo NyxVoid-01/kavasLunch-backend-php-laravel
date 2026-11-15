@@ -31,8 +31,9 @@ class AdminController extends Controller
         $today = now()->toDateString();
         
         $stats = [
-            'today_reservations' => Reservation::whereDate('reservation_date', $today)->count(),
-            'today_revenue' => Reservation::whereDate('reservation_date', $today)
+            // Las canceladas y vencidas no cuentan como reservas del día ni como ingreso
+            'today_reservations' => Reservation::counted()->whereDate('reservation_date', $today)->count(),
+            'today_revenue' => Reservation::counted()->whereDate('reservation_date', $today)
                 ->with('menu')
                 ->get()
                 ->sum(fn($r) => $r->menu->price),
@@ -45,7 +46,7 @@ class AdminController extends Controller
             'active_menus' => DailyMenu::active()->where('date', '>=', $today)->count(),
             'low_stock_menus' => DailyMenu::active()
                 ->where('date', '>=', $today)
-                ->where('stock', '<=', 5)
+                ->where('stock', '<=', DailyMenu::LOW_STOCK_THRESHOLD)
                 ->count(),
             'total_dishes' => Dish::active()->count(),
         ];
@@ -93,13 +94,13 @@ class AdminController extends Controller
     public function storeDish(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
+            'name' => ['required', 'string', 'max:255', $this->uniqueDishName()],
             'description' => 'nullable|string',
             'category' => 'required|in:appetizer,main,drink',
-            'price' => 'required|numeric|min:0',
-            'image_url' => 'nullable|url',
+            'price' => 'required|numeric|gt:0',
+            'image_url' => 'nullable|url|max:2048',
             'is_active' => 'sometimes|boolean',
-        ]);
+        ], $this->dishMessages());
 
         if ($validator->fails()) {
             return response()->json([
@@ -123,13 +124,13 @@ class AdminController extends Controller
         $dish = Dish::findOrFail($id);
 
         $validator = Validator::make($request->all(), [
-            'name' => 'sometimes|required|string|max:255',
+            'name' => ['sometimes', 'required', 'string', 'max:255', $this->uniqueDishName($dish->id)],
             'description' => 'nullable|string',
             'category' => 'sometimes|required|in:appetizer,main,drink',
-            'price' => 'sometimes|required|numeric|min:0',
-            'image_url' => 'nullable|url',
+            'price' => 'sometimes|required|numeric|gt:0',
+            'image_url' => 'nullable|url|max:2048',
             'is_active' => 'sometimes|boolean',
-        ]);
+        ], $this->dishMessages());
 
         if ($validator->fails()) {
             return response()->json([
@@ -219,13 +220,14 @@ class AdminController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'date' => 'required|date|after_or_equal:today',
-            'appetizer_id' => 'nullable|uuid|exists:dishes,id',
-            'main_dish_id' => 'nullable|uuid|exists:dishes,id',
-            'drink_id' => 'nullable|uuid|exists:dishes,id',
-            'price' => 'required|numeric|min:0',
+            // Combinación válida: cada plato debe existir, estar activo y ser de su categoría
+            'appetizer_id' => ['nullable', 'uuid', $this->activeDishOfCategory('appetizer')],
+            'main_dish_id' => ['required', 'uuid', $this->activeDishOfCategory('main')],
+            'drink_id' => ['nullable', 'uuid', $this->activeDishOfCategory('drink')],
+            'price' => 'required|numeric|gt:0',
             'stock' => 'required|integer|min:0',
             'is_active' => 'sometimes|boolean',
-        ]);
+        ], $this->menuMessages());
 
         if ($validator->fails()) {
             return response()->json([
@@ -263,13 +265,14 @@ class AdminController extends Controller
         $menu = DailyMenu::findOrFail($id);
 
         $validator = Validator::make($request->all(), [
-            'appetizer_id' => 'nullable|uuid|exists:dishes,id',
-            'main_dish_id' => 'nullable|uuid|exists:dishes,id',
-            'drink_id' => 'nullable|uuid|exists:dishes,id',
-            'price' => 'sometimes|required|numeric|min:0',
+            // Un plato que ya estaba en el menú se acepta aunque luego se haya desactivado
+            'appetizer_id' => ['nullable', 'uuid', $this->activeDishOfCategory('appetizer', $menu->appetizer_id)],
+            'main_dish_id' => ['sometimes', 'required', 'uuid', $this->activeDishOfCategory('main', $menu->main_dish_id)],
+            'drink_id' => ['nullable', 'uuid', $this->activeDishOfCategory('drink', $menu->drink_id)],
+            'price' => 'sometimes|required|numeric|gt:0',
             'stock' => 'sometimes|required|integer|min:0',
             'is_active' => 'sometimes|boolean',
-        ]);
+        ], $this->menuMessages());
 
         if ($validator->fails()) {
             return response()->json([
@@ -327,6 +330,12 @@ class AdminController extends Controller
         $validator = Validator::make($request->all(), [
             'stock' => 'required|integer|min:0',
             'reason' => 'required|string|max:255',
+        ], [
+            'stock.required' => 'El stock es obligatorio.',
+            'stock.integer' => 'El stock debe ser un número entero.',
+            'stock.min' => 'El stock no puede ser negativo.',
+            'reason.required' => 'Indica el motivo del cambio de stock.',
+            'reason.max' => 'El motivo no puede superar los 255 caracteres.',
         ]);
 
         if ($validator->fails()) {
@@ -606,6 +615,74 @@ class AdminController extends Controller
             'success' => true,
             'data' => ['audits' => $audits]
         ]);
+    }
+
+    // ==========================================
+    // VALIDACIONES DE PLATOS Y MENÚS
+    // ==========================================
+
+    // El nombre del plato debe ser único (sin distinguir mayúsculas)
+    private function uniqueDishName(?string $ignoreId = null): \Closure
+    {
+        return function ($attribute, $value, $fail) use ($ignoreId) {
+            $exists = Dish::whereRaw('LOWER(name) = ?', [mb_strtolower(trim((string) $value))])
+                ->when($ignoreId, fn ($query) => $query->where('id', '!=', $ignoreId))
+                ->exists();
+
+            if ($exists) {
+                $fail('Ya existe un plato con ese nombre.');
+            }
+        };
+    }
+
+    // Combinación válida de un menú: el plato existe, es de la categoría que corresponde y está activo
+    private function activeDishOfCategory(string $category, ?string $currentId = null): \Closure
+    {
+        $labels = ['appetizer' => 'Entrada', 'main' => 'Plato Principal', 'drink' => 'Bebida'];
+
+        return function ($attribute, $value, $fail) use ($category, $currentId, $labels) {
+            if ($value === null) {
+                return;
+            }
+
+            $dish = Dish::find($value);
+
+            if (!$dish) {
+                $fail('El plato seleccionado no existe.');
+            } elseif ($dish->category !== $category) {
+                $fail("El plato «{$dish->name}» no es de la categoría {$labels[$category]}.");
+            } elseif (!$dish->is_active && $value !== $currentId) {
+                $fail("El plato «{$dish->name}» está inactivo.");
+            }
+        };
+    }
+
+    private function dishMessages(): array
+    {
+        return [
+            'name.required' => 'El nombre es obligatorio.',
+            'category.required' => 'Selecciona la categoría.',
+            'category.in' => 'La categoría debe ser Entrada, Principal o Bebida.',
+            'price.required' => 'El precio es obligatorio.',
+            'price.numeric' => 'El precio debe ser un número.',
+            'price.gt' => 'El precio debe ser mayor a 0.',
+            'image_url.url' => 'La imagen debe ser un enlace válido (https://...).',
+        ];
+    }
+
+    private function menuMessages(): array
+    {
+        return [
+            'date.required' => 'Selecciona una fecha.',
+            'date.after_or_equal' => 'La fecha no puede ser anterior a hoy.',
+            'main_dish_id.required' => 'Selecciona el plato principal.',
+            'price.required' => 'El precio es obligatorio.',
+            'price.numeric' => 'El precio debe ser un número.',
+            'price.gt' => 'El precio debe ser mayor a 0.',
+            'stock.required' => 'El stock es obligatorio.',
+            'stock.integer' => 'El stock debe ser un número entero.',
+            'stock.min' => 'El stock no puede ser negativo.',
+        ];
     }
 
     // ==========================================

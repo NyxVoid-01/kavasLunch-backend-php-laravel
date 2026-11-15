@@ -83,6 +83,12 @@ class Reservation extends Model
         return $query->where('status', 'expired');
     }
 
+    // Reservas que cuentan para el negocio: las canceladas y las vencidas (no recogidas) no generan ingreso
+    public function scopeCounted($query)
+    {
+        return $query->whereNotIn('status', ['cancelled', 'expired']);
+    }
+
     public function scopeByTimeSlot($query, $timeSlot)
     {
         return $query->where('pickup_time_slot', $timeSlot);
