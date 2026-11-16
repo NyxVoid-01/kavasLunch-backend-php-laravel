@@ -219,7 +219,12 @@ class AdminController extends Controller
     public function storeMenu(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'date' => 'required|date|after_or_equal:today',
+            // Los menús son solo de lunes a viernes
+            'date' => ['required', 'date', 'after_or_equal:today', function ($attribute, $value, $fail) {
+                if (Carbon::parse($value)->isWeekend()) {
+                    $fail('Los menús son solo de lunes a viernes. Elige un día hábil.');
+                }
+            }],
             // Combinación válida: cada plato debe existir, estar activo y ser de su categoría
             'appetizer_id' => ['nullable', 'uuid', $this->activeDishOfCategory('appetizer')],
             'main_dish_id' => ['required', 'uuid', $this->activeDishOfCategory('main')],

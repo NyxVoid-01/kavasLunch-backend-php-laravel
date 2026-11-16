@@ -22,15 +22,44 @@ class AuthController extends Controller
     const MAX_LOGIN_ATTEMPTS = 5;
     const LOCKOUT_SECONDS = 900; // 15 minutos
 
+    // Cada estudiante es uno solo: se normaliza el nombre (espacios) y el correo (minúsculas) antes de validar
+    private function normalizeIdentity(Request $request): void
+    {
+        $changes = [];
+        if ($request->has('full_name') && is_string($request->full_name)) {
+            $changes['full_name'] = trim(preg_replace('/\s+/u', ' ', $request->full_name));
+        }
+        if ($request->has('email') && is_string($request->email)) {
+            $changes['email'] = mb_strtolower(trim($request->email));
+        }
+        $request->merge($changes);
+    }
+
+    // No se permiten nombres duplicados (sin distinguir mayúsculas ni espacios de más)
+    private function uniqueFullName(?string $ignoreId = null): \Closure
+    {
+        return function ($attribute, $value, $fail) use ($ignoreId) {
+            $exists = User::whereRaw("LOWER(REGEXP_REPLACE(TRIM(full_name), '\s+', ' ', 'g')) = ?", [mb_strtolower((string) $value)])
+                ->when($ignoreId, fn ($query) => $query->where('id', '!=', $ignoreId))
+                ->exists();
+
+            if ($exists) {
+                $fail('Ya existe una cuenta con este nombre. Cada estudiante puede tener una sola cuenta.');
+            }
+        };
+    }
     public function register(Request $request)
     {
+        $this->normalizeIdentity($request);
+
         $validator = Validator::make($request->all(), [
-            'full_name' => 'required|string|max:255',
+            'full_name' => ['required', 'string', 'max:255', $this->uniqueFullName()],
             'email' => 'required|string|email|max:255|unique:users|regex:/^[a-zA-Z0-9._%+-]+@upch\.pe$/',
             'password' => 'required|string|min:8|regex:/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/',
             'password_confirmation' => 'required|same:password',
         ], [
             'email.regex' => 'El correo debe ser del dominio @upch.pe',
+            'email.unique' => 'Este correo ya está registrado.',
             'password.min' => 'La contraseña debe tener al menos 8 caracteres',
             'password.regex' => 'La contraseña debe tener al menos 8 caracteres, una mayúscula, un número y un carácter especial',
         ]);
@@ -283,11 +312,14 @@ class AuthController extends Controller
     {
         $user = auth('api')->user();
 
+        $this->normalizeIdentity($request);
+
         $validator = Validator::make($request->all(), [
-            'full_name' => 'sometimes|required|string|max:255',
+            'full_name' => ['sometimes', 'required', 'string', 'max:255', $this->uniqueFullName($user->id)],
             'email' => 'sometimes|required|string|email|max:255|unique:users,email,' . $user->id . '|regex:/^[a-zA-Z0-9._%+-]+@upch\.pe$/',
         ], [
             'email.regex' => 'El correo debe ser del dominio @upch.pe',
+            'email.unique' => 'Este correo ya está registrado.',
         ]);
 
         if ($validator->fails()) {
