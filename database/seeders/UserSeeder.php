@@ -2,8 +2,8 @@
 
 namespace Database\Seeders;
 
+use App\Models\User;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class UserSeeder extends Seeder
@@ -13,7 +13,8 @@ class UserSeeder extends Seeder
      */
     public function run(): void
     {
-        DB::table('users')->insert([
+        // Con Eloquent para que el nombre y el correo se guarden cifrados (RNF-004)
+        $users = [
             [
                 'id' => 'd2636b72-5fc8-437e-a4fe-da007091e4bf',
                 'email' => 'ruben.rojas@upch.pe',
@@ -86,7 +87,11 @@ class UserSeeder extends Seeder
                 'created_at' => now(),
                 'updated_at' => now(),
             ],
-        ]);
+        ];
+
+        foreach ($users as $data) {
+            (new User())->forceFill($data)->save();
+        }
 
         $this->command->info('✅ 8 usuarios creados (password: password)');
     }

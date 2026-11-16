@@ -132,7 +132,7 @@
             <p><strong>Horario de Recojo:</strong> <span style="color: #2563eb; font-size: 18px; font-weight: bold;">{{ $reservation->pickup_time_slot->format('h:i A') }}</span></p>
             <p style="color: #f59e0b; font-size: 14px;">⏰ Tienes hasta las {{ $reservation->pickup_window_end->format('h:i A') }} para recoger tu pedido</p>
             <p><strong>Estado:</strong> <span style="color: #f59e0b;">Pendiente</span></p>
-            <p><strong>Método de Pago:</strong> {{ ucfirst($reservation->payment_method) }}</p>
+            <p><strong>Método de Pago:</strong> {{ \App\Models\Payment::methodLabel($reservation->payment_method) }}</p>
         </div>
 
         <div class="info-section">
@@ -157,7 +157,7 @@
             <ol>
                 <li>Llega al comedor entre las <strong>{{ $reservation->pickup_time_slot->format('h:i A') }}</strong> y las <strong>{{ $reservation->pickup_window_end->format('h:i A') }}</strong></li>
                 <li>Presenta tu código QR o el código <strong>{{ $reservation->code }}</strong> en la caja</li>
-                <li>Si pagaste con Yape/Plin, presenta también tu comprobante de pago</li>
+                <li>Si pagas con Yape/Plin o tarjeta, recibirás otro correo con la confirmación de tu pago; si pagas en efectivo, paga en caja al recoger</li>
                 <li><strong style="color: #dc2626;">IMPORTANTE:</strong> Si no recoges tu pedido dentro de tu horario de recojo, tu reserva expirará automáticamente</li>
             </ol>
         </div>

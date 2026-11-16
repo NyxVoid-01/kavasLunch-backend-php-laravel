@@ -261,3 +261,18 @@ docker compose exec backend php artisan queue:restart
 Notas:
 - Con un SMTP real, las cuentas de prueba con correos inexistentes (por ejemplo `prueba@upch.pe`) generan rebotes; usa correos reales para probar.
 - Los envíos de bienvenida y recuperación son inmediatos; los recordatorios y vencimientos pasan por la cola (workers de supervisor).
+
+---
+
+## 🔐 Datos personales cifrados (RNF-004)
+
+- El **nombre** y el **correo** de cada usuario se guardan cifrados (AES-256, cast `encrypted` de Laravel con la `APP_KEY`).
+- Para buscar sin descifrar se usan **índices ciegos** (`email_hash`, `full_name_hash`, HMAC-SHA256): login, recuperación de contraseña y la regla de "un estudiante, una cuenta" (correo y nombre únicos).
+- La tabla de tokens de recuperación guarda el índice ciego, nunca el correo en claro.
+- ⚠️ **No cambies ni pierdas la `APP_KEY`**: si cambia, los nombres y correos ya guardados no se pueden leer y nadie puede iniciar sesión. Respáldala junto con la base de datos (también al desplegar).
+
+## 💳 Pago simulado con plazo (RF-014)
+
+- Yape/Plin y tarjeta: al confirmar la reserva se genera una **solicitud de pago que vence a los 3 minutos** (`POST /api/user/payment/request`). El pago solo se acepta si se confirma dentro de ese plazo (`POST /api/user/payment/process`); si vence, se genera otra o se paga en caja.
+- Efectivo: queda pendiente y se cobra en el comedor al entregar.
+- Al completarse el pago se envía el correo **"Pago confirmado"** por la cola (llega en segundos).

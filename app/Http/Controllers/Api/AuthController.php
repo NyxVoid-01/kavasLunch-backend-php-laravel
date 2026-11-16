@@ -35,11 +35,12 @@ class AuthController extends Controller
         $request->merge($changes);
     }
 
-    // No se permiten nombres duplicados (sin distinguir mayúsculas ni espacios de más)
+    // No se permiten nombres duplicados (sin distinguir mayúsculas ni espacios de más).
+    // El nombre está cifrado: se compara su índice ciego.
     private function uniqueFullName(?string $ignoreId = null): \Closure
     {
         return function ($attribute, $value, $fail) use ($ignoreId) {
-            $exists = User::whereRaw("LOWER(REGEXP_REPLACE(TRIM(full_name), '\s+', ' ', 'g')) = ?", [mb_strtolower((string) $value)])
+            $exists = User::withFullName((string) $value)
                 ->when($ignoreId, fn ($query) => $query->where('id', '!=', $ignoreId))
                 ->exists();
 
@@ -48,13 +49,28 @@ class AuthController extends Controller
             }
         };
     }
+
+    // No se permiten correos duplicados (el correo está cifrado: se compara su índice ciego)
+    private function uniqueEmail(?string $ignoreId = null): \Closure
+    {
+        return function ($attribute, $value, $fail) use ($ignoreId) {
+            $exists = User::withEmail((string) $value)
+                ->when($ignoreId, fn ($query) => $query->where('id', '!=', $ignoreId))
+                ->exists();
+
+            if ($exists) {
+                $fail('Este correo ya está registrado.');
+            }
+        };
+    }
+
     public function register(Request $request)
     {
         $this->normalizeIdentity($request);
 
         $validator = Validator::make($request->all(), [
             'full_name' => ['required', 'string', 'max:255', $this->uniqueFullName()],
-            'email' => 'required|string|email|max:255|unique:users|regex:/^[a-zA-Z0-9._%+-]+@upch\.pe$/',
+            'email' => ['required', 'string', 'email', 'max:255', 'regex:/^[a-zA-Z0-9._%+-]+@upch\.pe$/', $this->uniqueEmail()],
             'password' => 'required|string|min:8|regex:/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/',
             'password_confirmation' => 'required|same:password',
         ], [
@@ -188,7 +204,7 @@ class AuthController extends Controller
             'message' => 'Si el correo está registrado, recibirás un enlace para restablecer tu contraseña.'
         ]);
 
-        $user = User::where('email', Str::lower($request->email))->first();
+        $user = User::findByEmail($request->email);
         if (!$user) {
             return $response;
         }
@@ -316,7 +332,7 @@ class AuthController extends Controller
 
         $validator = Validator::make($request->all(), [
             'full_name' => ['sometimes', 'required', 'string', 'max:255', $this->uniqueFullName($user->id)],
-            'email' => 'sometimes|required|string|email|max:255|unique:users,email,' . $user->id . '|regex:/^[a-zA-Z0-9._%+-]+@upch\.pe$/',
+            'email' => ['sometimes', 'required', 'string', 'email', 'max:255', 'regex:/^[a-zA-Z0-9._%+-]+@upch\.pe$/', $this->uniqueEmail($user->id)],
         ], [
             'email.regex' => 'El correo debe ser del dominio @upch.pe',
             'email.unique' => 'Este correo ya está registrado.',

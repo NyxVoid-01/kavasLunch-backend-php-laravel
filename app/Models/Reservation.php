@@ -122,7 +122,9 @@ class Reservation extends Model
 
     public function markAsDelivered()
     {
-        \DB::transaction(function () {
+        $paidNow = null;
+
+        \DB::transaction(function () use (&$paidNow) {
             $this->status = 'delivered';
             $this->delivered_at = now();
 
@@ -136,12 +138,20 @@ class Reservation extends Model
                     'method' => $this->payment_method ?? 'cash',
                 ]);
                 $payment->status = 'completed';
+                $payment->paid_at = now();
+                $payment->expires_at = null;
                 $payment->transaction_code = $payment->transaction_code ?: 'CASH-' . strtoupper(Str::random(10));
                 $payment->save();
+                $paidNow = $payment->id;
             }
 
             $this->save();
         });
+
+        // Se cobró al entregar: confirmación de pago por correo (RF-014)
+        if ($paidNow) {
+            \App\Jobs\SendPaymentConfirmationEmail::dispatch($paidNow);
+        }
 
         return $this;
     }

@@ -9,7 +9,7 @@ Presenta este código o escanea el QR en caja
 Fecha: {{ $reservation->reservation_date->format('d/m/Y') }}
 Horario de Recojo: {{ $reservation->pickup_time_slot->format('h:i A') }} - {{ $reservation->pickup_window_end->format('h:i A') }}
 Estado: Pendiente
-Método de Pago: {{ ucfirst($reservation->payment_method) }}
+Método de Pago: {{ \App\Models\Payment::methodLabel($reservation->payment_method) }}
 
 🍴 Tu Menú
 Entrada: {{ $reservation->menu->appetizer?->name ?? 'No especificado' }}
@@ -21,7 +21,7 @@ Precio Total: S/. {{ number_format($reservation->menu->price, 2) }}
 📋 Instrucciones para Recoger
 1. Llega al comedor entre las {{ $reservation->pickup_time_slot->format('h:i A') }} y las {{ $reservation->pickup_window_end->format('h:i A') }}
 2. Presenta tu código QR o el código {{ $reservation->code }} en la caja
-3. Si pagaste con Yape/Plin, presenta también tu comprobante de pago
+3. Si pagas con Yape/Plin o tarjeta, recibirás otro correo con la confirmación de tu pago; si pagas en efectivo, paga en caja al recoger
 
 ⚠️ IMPORTANTE: 
 - Recibirás un recordatorio 10 minutos antes de tu horario

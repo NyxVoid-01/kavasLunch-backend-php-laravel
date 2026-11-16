@@ -66,6 +66,7 @@ Route::middleware('auth:api')->group(function () {
         
         // Pagos
         Route::get('/payment/methods', [PaymentController::class, 'getPaymentMethods']);
+        Route::post('/payment/request', [PaymentController::class, 'requestPayment']);
         Route::post('/payment/process', [PaymentController::class, 'processPayment']);
     });
     
