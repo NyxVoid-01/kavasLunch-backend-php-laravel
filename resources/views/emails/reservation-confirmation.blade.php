@@ -156,7 +156,7 @@
             <h3>📋 Instrucciones para Recoger</h3>
             <ol>
                 <li>Llega al comedor entre las <strong>{{ $reservation->pickup_time_slot->format('h:i A') }}</strong> y las <strong>{{ $reservation->pickup_window_end->format('h:i A') }}</strong></li>
-                <li>Presenta tu código QR o el código <strong>{{ $reservation->code }}</strong> en la caja</li>
+                <li>Presenta tu código <strong>{{ $reservation->code }}</strong> en la caja</li>
                 <li>Si pagas con Yape/Plin o tarjeta, recibirás otro correo con la confirmación de tu pago; si pagas en efectivo, paga en caja al recoger</li>
                 <li><strong style="color: #dc2626;">IMPORTANTE:</strong> Si no recoges tu pedido dentro de tu horario de recojo, tu reserva expirará automáticamente</li>
             </ol>

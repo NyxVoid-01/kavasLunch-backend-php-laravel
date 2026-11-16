@@ -3,7 +3,7 @@ Estimado/a {{ $reservation->user->full_name }},
 ¡Tu reserva ha sido confirmada exitosamente!
 
 CÓDIGO DE RESERVA: {{ $reservation->code }}
-Presenta este código o escanea el QR en caja
+Presenta este código en caja
 
 📅 Detalles de tu Reserva
 Fecha: {{ $reservation->reservation_date->format('d/m/Y') }}
@@ -20,7 +20,7 @@ Precio Total: S/. {{ number_format($reservation->menu->price, 2) }}
 
 📋 Instrucciones para Recoger
 1. Llega al comedor entre las {{ $reservation->pickup_time_slot->format('h:i A') }} y las {{ $reservation->pickup_window_end->format('h:i A') }}
-2. Presenta tu código QR o el código {{ $reservation->code }} en la caja
+2. Presenta tu código {{ $reservation->code }} en la caja
 3. Si pagas con Yape/Plin o tarjeta, recibirás otro correo con la confirmación de tu pago; si pagas en efectivo, paga en caja al recoger
 
 ⚠️ IMPORTANTE: 

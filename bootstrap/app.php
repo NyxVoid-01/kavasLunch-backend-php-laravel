@@ -54,7 +54,7 @@ return Application::configure(basePath: dirname(__DIR__))
             if ($request->is('api/*') || $request->expectsJson()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Unauthenticated. Please log in.',
+                    'message' => 'Tu sesión no es válida o expiró. Inicia sesión nuevamente.',
                     'error' => 'unauthorized'
                 ], 401);
             }
