@@ -242,3 +242,22 @@ Si los correos no aparecen en Mailhog:
    - El contenedor `scheduler` debe estar activo.
    - Revisa los logs: `docker compose logs scheduler`
 
+
+---
+
+## 📬 Correos reales (llegan a la bandeja de cada usuario)
+
+Por defecto el entorno de desarrollo usa **Mailhog** y ningún correo sale a Internet. Para que los correos
+(bienvenida, confirmación, recordatorio, cancelación, vencimiento y recuperación de contraseña) lleguen a la
+bandeja del correo con el que se registró cada usuario, configura un servidor SMTP real en el `.env`
+(no se sube a git): `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_ENCRYPTION` y un
+`MAIL_FROM_ADDRESS` verificado en el proveedor. Luego reinicia:
+
+```bash
+docker compose up -d --force-recreate backend
+docker compose exec backend php artisan queue:restart
+```
+
+Notas:
+- Con un SMTP real, las cuentas de prueba con correos inexistentes (por ejemplo `prueba@upch.pe`) generan rebotes; usa correos reales para probar.
+- Los envíos de bienvenida y recuperación son inmediatos; los recordatorios y vencimientos pasan por la cola (workers de supervisor).

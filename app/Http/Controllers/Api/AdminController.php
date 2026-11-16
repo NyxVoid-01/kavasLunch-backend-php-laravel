@@ -684,7 +684,8 @@ class AdminController extends Controller
             $query->whereDate('created_at', '<=', $request->date_to);
         }
 
-        $audits = $query->orderBy('created_at', 'desc')->get();
+        // Los 100 cambios más recientes: el historial de un menú no necesita más
+        $audits = $query->orderBy('created_at', 'desc')->limit(100)->get();
 
         return response()->json([
             'success' => true,
