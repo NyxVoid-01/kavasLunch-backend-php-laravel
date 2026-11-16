@@ -1,0 +1,57 @@
+<?php
+
+// Mensajes de validación en español (la configuración usa APP_LOCALE=es)
+return [
+    'accepted' => 'Debes aceptar :attribute.',
+    'array' => 'Revisa :attribute: debe ser una lista.',
+    'boolean' => 'Revisa :attribute: debe ser verdadero o falso.',
+    'confirmed' => 'La confirmación de :attribute no coincide.',
+    'date' => 'Ingresa :attribute en un formato de fecha válido.',
+    'date_format' => 'Revisa :attribute: no tiene el formato :format.',
+    'after_or_equal' => 'Revisa :attribute: debe ser una fecha igual o posterior a :date.',
+    'before_or_equal' => 'Revisa :attribute: debe ser una fecha igual o anterior a :date.',
+    'email' => 'Revisa :attribute: debe ser un correo electrónico válido.',
+    'exists' => 'Revisa :attribute: la opción elegida no es válida.',
+    'in' => 'Revisa :attribute: la opción elegida no es válida.',
+    'integer' => 'Revisa :attribute: debe ser un número entero.',
+    'numeric' => 'Revisa :attribute: debe ser un número.',
+    'regex' => 'Revisa :attribute: el formato no es válido.',
+    'required' => 'Debes completar :attribute.',
+    'same' => 'Revisa :attribute: debe coincidir con :other.',
+    'string' => 'Revisa :attribute: debe ser texto.',
+    'unique' => 'Ya existe un registro con :attribute indicado.',
+    'url' => 'Revisa :attribute: debe ser una URL válida.',
+    'gt' => [
+        'numeric' => 'Revisa :attribute: debe ser mayor que :value.',
+        'string' => 'Revisa :attribute: debe tener más de :value caracteres.',
+    ],
+    'min' => [
+        'numeric' => 'Revisa :attribute: debe ser al menos :min.',
+        'string' => 'Revisa :attribute: debe tener al menos :min caracteres.',
+    ],
+    'max' => [
+        'numeric' => 'Revisa :attribute: no puede ser mayor que :max.',
+        'string' => 'Revisa :attribute: no puede tener más de :max caracteres.',
+    ],
+
+    'attributes' => [
+        'full_name' => 'el nombre completo',
+        'email' => 'el correo',
+        'password' => 'la contraseña',
+        'password_confirmation' => 'la confirmación de la contraseña',
+        'name' => 'el nombre',
+        'description' => 'la descripción',
+        'category' => 'la categoría',
+        'price' => 'el precio',
+        'stock' => 'el stock',
+        'date' => 'la fecha',
+        'date_from' => 'la fecha «Desde»',
+        'date_to' => 'la fecha «Hasta»',
+        'payment_method' => 'el método de pago',
+        'pickup_time_slot' => 'el turno de recojo',
+        'daily_menu_id' => 'el menú',
+        'reservation_date' => 'la fecha de la reserva',
+        'image_url' => 'la imagen',
+        'token' => 'el enlace de recuperación',
+    ],
+];

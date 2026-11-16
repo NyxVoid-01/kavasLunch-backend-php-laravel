@@ -1,0 +1,45 @@
+<?php
+
+namespace App\Mail;
+
+use App\Models\User;
+use Illuminate\Bus\Queueable;
+use Illuminate\Mail\Mailable;
+use Illuminate\Mail\Mailables\Content;
+use Illuminate\Mail\Mailables\Envelope;
+use Illuminate\Queue\SerializesModels;
+
+// Correo de bienvenida al registrarse (RF-001)
+class WelcomeMail extends Mailable
+{
+    use Queueable, SerializesModels;
+
+    public $user;
+    public $menusUrl;
+
+    public function __construct(User $user)
+    {
+        $this->user = $user;
+        $this->menusUrl = rtrim(config('app.frontend_url'), '/') . '/menus/user';
+    }
+
+    public function envelope(): Envelope
+    {
+        return new Envelope(
+            subject: '¡Bienvenido/a a KAVAS-LUNCH!',
+        );
+    }
+
+    public function content(): Content
+    {
+        return new Content(
+            view: 'emails.welcome',
+            text: 'emails.welcome-text',
+        );
+    }
+
+    public function attachments(): array
+    {
+        return [];
+    }
+}

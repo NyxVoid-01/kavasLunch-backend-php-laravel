@@ -24,6 +24,9 @@ return Application::configure(basePath: dirname(__DIR__))
         
         // Configurar autenticación para API
         $middleware->redirectGuestsTo(fn () => null);
+
+        // Límite de peticiones por minuto en toda la API (RNF-005); se define en RouteServiceProvider
+        $middleware->throttleApi();
     })
     ->withExceptions(function (Exceptions $exceptions) {
         // Configurar respuesta para API cuando no está autenticado
@@ -34,6 +37,18 @@ return Application::configure(basePath: dirname(__DIR__))
             return $request->expectsJson();
         });
         
+        // Demasiadas peticiones: mensaje claro en español
+        $exceptions->renderable(function (\Illuminate\Http\Exceptions\ThrottleRequestsException $e, $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                $seconds = (int) ($e->getHeaders()['Retry-After'] ?? 60);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => "Demasiadas solicitudes. Intenta de nuevo en {$seconds} segundos.",
+                ], 429, $e->getHeaders());
+            }
+        });
+
         // Personalizar respuesta de autenticación fallida
         $exceptions->renderable(function (\Illuminate\Auth\AuthenticationException $e, $request) {
             if ($request->is('api/*') || $request->expectsJson()) {
