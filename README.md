@@ -2,6 +2,33 @@
 
 API RESTful para el sistema de gestión del comedor universitario KAVAS-LUNCH. Construido con Laravel 11.
 
+## 🚀 Inicio Rápido con Docker
+
+**Para nuevos desarrolladores**: Lee la [**Guía de Configuración Docker (DOCKER_SETUP.md)**](./DOCKER_SETUP.md)
+
+### Instalación Rápida
+
+```powershell
+# 1. Clonar y navegar al proyecto
+git clone <URL_DEL_REPOSITORIO>
+cd kavasLunch-backend-php-laravel
+
+# 2. Configurar entorno
+Copy-Item .env.example .env
+
+# 3. Levantar contenedores (automáticamente instala dependencias y migra DB)
+docker compose up -d --build
+
+# 4. Ver progreso de inicialización
+docker compose logs backend -f
+```
+
+**URLs disponibles:**
+- API: http://localhost:8000
+- MailHog: http://localhost:8025
+
+---
+
 ## 🔐 Autenticación
 
 El sistema utiliza **JWT (JSON Web Tokens)**.
@@ -75,7 +102,7 @@ Todas las rutas protegidas (User y Admin) requieren el header:
 ## 📝 Detalles de Uso (Endpoints Clave)
 
 ### 1. Ver Slots Disponibles
-Consulta los horarios y capacidad disponible para una fecha.
+Consulta los turnos de recojo del día con su disponibilidad (también los llenos o terminados, para mostrarlos deshabilitados).
 
 - **GET** `/api/user/reservations/available-slots`
 - **Query Params**:
@@ -87,20 +114,18 @@ Consulta los horarios y capacidad disponible para una fecha.
     "success": true,
     "data": {
         "date": "2025-11-27",
-        "available_slots": [
-            {
-                "time": "11:00",
-                "datetime": "2025-11-27 11:00:00",
-                "capacity_available": 7
-            },
+        "slots": [
+            { "time": "11:00", "datetime": "2025-11-27 11:00:00", "available": false, "capacity_available": 0, "capacity_used": 20 },
+            { "time": "12:00", "datetime": "2025-11-27 12:00:00", "available": true, "capacity_available": 7, "capacity_used": 13 },
             ...
-        ]
+        ],
+        "available_slots": [ /* solo los que tienen "available": true */ ]
     }
 }
 ```
 
 ### 2. Crear Reserva
-Crea una reserva, asigna automáticamente un time slot y genera el código QR.
+Crea una reserva en el turno elegido (o en el siguiente libre si no se envía) y genera el código QR.
 
 - **POST** `/api/user/reservations`
 - **Body**:
@@ -108,6 +133,7 @@ Crea una reserva, asigna automáticamente un time slot y genera el código QR.
 {
     "menu_id": "uuid-del-menu",
     "reservation_date": "2025-11-27", // Opcional, default: hoy
+    "pickup_time_slot": "12:00", // Opcional: turno elegido (11:00, 12:00, 13:00 o 14:00). Si no está disponible responde 422
     "payment_method": "cash" // cash, yape, plin, credit_card
 }
 ```
@@ -120,7 +146,7 @@ Crea una reserva, asigna automáticamente un time slot y genera el código QR.
             "id": "uuid",
             "code": "KL-12345678",
             "pickup_time_slot": "12:00",
-            "pickup_window_end": "12:15",
+            "pickup_window_end": "13:00",
             "qr_code_url": "http://.../qr-codes/qr-KL-12345678.png",
             "status": "pending"
         }
@@ -166,19 +192,26 @@ Marca una reserva como entregada escaneando su código.
 
 ### Gestión de Horarios (Time Slots)
 - **Horario**: 11:00 AM - 3:00 PM
-- **Intervalo**: 15 minutos
-- **Capacidad**: 10 personas por slot
-- **Asignación**: Automática (siguiente slot disponible)
+- **Turnos**: de 1 hora (11:00, 12:00, 13:00 y 14:00); el turno sigue disponible hasta que termina su hora
+- **Capacidad**: 20 personas por turno
+- **Asignación**: la elige el usuario; si no envía turno, se asigna el siguiente libre
+- **Reserva**: para hoy o mañana, de lunes a viernes (hoy, hasta las 15:00)
+
+### Pagos (pasarela simulada, RF-014)
+- `GET /api/user/payment/methods`: Yape / Plin, Tarjeta y Efectivo. El número de Yape sale de `PAYMENT_YAPE_NUMBER`.
+- `POST /api/user/payment/process`: no se capturan datos de tarjeta ni comprobante (es opcional `payment_proof_url`).
+  - **Yape / Plin y Tarjeta**: el pago queda registrado como realizado al confirmar.
+  - **Efectivo**: queda pendiente y se marca como pagado al entregar el pedido.
 
 ### Ciclo de Vida de Reserva
 1. **Pending**: Reserva creada, QR generado.
 2. **Delivered**: Entregada (vía Scan QR o manual).
 3. **Cancelled**: Cancelada por usuario (antes 10AM) o admin.
-4. **Expired**: No recogida 15 min después del slot (Stock liberado automáticamente).
+4. **Expired**: No recogida al terminar su turno (stock liberado automáticamente).
 
 ### Jobs Automáticos
 - **Recordatorio**: Email enviado 10 min antes del slot.
-- **Expiración**: Ejecutado 15 min después del slot si no se ha entregado.
+- **Expiración**: Se ejecuta al terminar el turno si no se ha entregado.
 
 ---
 
@@ -193,7 +226,7 @@ El entorno de desarrollo incluye **Mailhog** para capturar y visualizar todos lo
 ### Correos a Verificar
 1. **Confirmación de Reserva**: Se envía inmediatamente al crear una reserva (`POST /api/user/reservations`). Debe incluir el código QR y el horario asignado.
 2. **Recordatorio de Recojo**: Se envía automáticamente 10 minutos antes de la hora de inicio del slot asignado.
-3. **Notificación de Expiración**: Se envía 15 minutos después del inicio del slot si la reserva no fue marcada como entregada.
+3. **Notificación de Expiración**: Se envía al terminar el turno si la reserva no fue marcada como entregada.
 4. **Cancelación de Reserva**: Se envía inmediatamente al cancelar una reserva (`DELETE /api/user/reservations/{id}/cancel`).
 
 ### Troubleshooting
@@ -209,3 +242,37 @@ Si los correos no aparecen en Mailhog:
    - El contenedor `scheduler` debe estar activo.
    - Revisa los logs: `docker compose logs scheduler`
 
+
+---
+
+## 📬 Correos reales (llegan a la bandeja de cada usuario)
+
+Por defecto el entorno de desarrollo usa **Mailhog** y ningún correo sale a Internet. Para que los correos
+(bienvenida, confirmación, recordatorio, cancelación, vencimiento y recuperación de contraseña) lleguen a la
+bandeja del correo con el que se registró cada usuario, configura un servidor SMTP real en el `.env`
+(no se sube a git): `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_ENCRYPTION` y un
+`MAIL_FROM_ADDRESS` verificado en el proveedor. Luego reinicia:
+
+```bash
+docker compose up -d --force-recreate backend
+docker compose exec backend php artisan queue:restart
+```
+
+Notas:
+- Con un SMTP real, las cuentas de prueba con correos inexistentes (por ejemplo `prueba@upch.pe`) generan rebotes; usa correos reales para probar.
+- Los envíos de bienvenida y recuperación son inmediatos; los recordatorios y vencimientos pasan por la cola (workers de supervisor).
+
+---
+
+## 🔐 Datos personales cifrados (RNF-004)
+
+- El **nombre** y el **correo** de cada usuario se guardan cifrados (AES-256, cast `encrypted` de Laravel con la `APP_KEY`).
+- Para buscar sin descifrar se usan **índices ciegos** (`email_hash`, `full_name_hash`, HMAC-SHA256): login, recuperación de contraseña y la regla de "un estudiante, una cuenta" (correo y nombre únicos).
+- La tabla de tokens de recuperación guarda el índice ciego, nunca el correo en claro.
+- ⚠️ **No cambies ni pierdas la `APP_KEY`**: si cambia, los nombres y correos ya guardados no se pueden leer y nadie puede iniciar sesión. Respáldala junto con la base de datos (también al desplegar).
+
+## 💳 Pago simulado con plazo (RF-014)
+
+- Yape/Plin y tarjeta: al confirmar la reserva se genera una **solicitud de pago que vence a los 3 minutos** (`POST /api/user/payment/request`). El pago solo se acepta si se confirma dentro de ese plazo (`POST /api/user/payment/process`); si vence, se genera otra o se paga en caja.
+- Efectivo: queda pendiente y se cobra en el comedor al entregar.
+- Al completarse el pago se envía el correo **"Pago confirmado"** por la cola (llega en segundos).

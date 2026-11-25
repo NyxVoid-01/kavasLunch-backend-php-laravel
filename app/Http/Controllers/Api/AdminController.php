@@ -31,8 +31,9 @@ class AdminController extends Controller
         $today = now()->toDateString();
         
         $stats = [
-            'today_reservations' => Reservation::whereDate('reservation_date', $today)->count(),
-            'today_revenue' => Reservation::whereDate('reservation_date', $today)
+            // Las canceladas y vencidas no cuentan como reservas del día ni como ingreso
+            'today_reservations' => Reservation::counted()->whereDate('reservation_date', $today)->count(),
+            'today_revenue' => Reservation::counted()->whereDate('reservation_date', $today)
                 ->with('menu')
                 ->get()
                 ->sum(fn($r) => $r->menu->price),
@@ -45,7 +46,7 @@ class AdminController extends Controller
             'active_menus' => DailyMenu::active()->where('date', '>=', $today)->count(),
             'low_stock_menus' => DailyMenu::active()
                 ->where('date', '>=', $today)
-                ->where('stock', '<=', 5)
+                ->where('stock', '<=', DailyMenu::LOW_STOCK_THRESHOLD)
                 ->count(),
             'total_dishes' => Dish::active()->count(),
         ];
@@ -93,13 +94,13 @@ class AdminController extends Controller
     public function storeDish(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
+            'name' => ['required', 'string', 'max:255', $this->uniqueDishName()],
             'description' => 'nullable|string',
             'category' => 'required|in:appetizer,main,drink',
-            'price' => 'required|numeric|min:0',
-            'image_url' => 'nullable|url',
+            'price' => 'required|numeric|gt:0',
+            'image_url' => 'nullable|url|max:2048',
             'is_active' => 'sometimes|boolean',
-        ]);
+        ], $this->dishMessages());
 
         if ($validator->fails()) {
             return response()->json([
@@ -123,13 +124,13 @@ class AdminController extends Controller
         $dish = Dish::findOrFail($id);
 
         $validator = Validator::make($request->all(), [
-            'name' => 'sometimes|required|string|max:255',
+            'name' => ['sometimes', 'required', 'string', 'max:255', $this->uniqueDishName($dish->id)],
             'description' => 'nullable|string',
             'category' => 'sometimes|required|in:appetizer,main,drink',
-            'price' => 'sometimes|required|numeric|min:0',
-            'image_url' => 'nullable|url',
+            'price' => 'sometimes|required|numeric|gt:0',
+            'image_url' => 'nullable|url|max:2048',
             'is_active' => 'sometimes|boolean',
-        ]);
+        ], $this->dishMessages());
 
         if ($validator->fails()) {
             return response()->json([
@@ -218,14 +219,20 @@ class AdminController extends Controller
     public function storeMenu(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'date' => 'required|date|after_or_equal:today',
-            'appetizer_id' => 'nullable|uuid|exists:dishes,id',
-            'main_dish_id' => 'nullable|uuid|exists:dishes,id',
-            'drink_id' => 'nullable|uuid|exists:dishes,id',
-            'price' => 'required|numeric|min:0',
+            // Los menús son solo de lunes a viernes
+            'date' => ['required', 'date', 'after_or_equal:today', function ($attribute, $value, $fail) {
+                if (Carbon::parse($value)->isWeekend()) {
+                    $fail('Los menús son solo de lunes a viernes. Elige un día hábil.');
+                }
+            }],
+            // Combinación válida: cada plato debe existir, estar activo y ser de su categoría
+            'appetizer_id' => ['nullable', 'uuid', $this->activeDishOfCategory('appetizer')],
+            'main_dish_id' => ['required', 'uuid', $this->activeDishOfCategory('main')],
+            'drink_id' => ['nullable', 'uuid', $this->activeDishOfCategory('drink')],
+            'price' => 'required|numeric|gt:0',
             'stock' => 'required|integer|min:0',
             'is_active' => 'sometimes|boolean',
-        ]);
+        ], $this->menuMessages());
 
         if ($validator->fails()) {
             return response()->json([
@@ -235,11 +242,17 @@ class AdminController extends Controller
             ], 422);
         }
 
-        // Validar que no exista menú para esa fecha
-        if (DailyMenu::whereDate('date', $request->date)->exists()) {
+        // Validar que no exista un menú idéntico (misma fecha y misma combinación de platos)
+        $duplicateMenu = DailyMenu::where('date', $request->date)
+            ->where('appetizer_id', $request->appetizer_id)
+            ->where('main_dish_id', $request->main_dish_id)
+            ->where('drink_id', $request->drink_id)
+            ->exists();
+
+        if ($duplicateMenu) {
             return response()->json([
                 'success' => false,
-                'message' => 'Ya existe un menú para esta fecha'
+                'message' => 'Ya existe un menú con esta misma combinación de platos para esta fecha. Por favor, elige una combinación diferente.'
             ], 400);
         }
 
@@ -257,13 +270,14 @@ class AdminController extends Controller
         $menu = DailyMenu::findOrFail($id);
 
         $validator = Validator::make($request->all(), [
-            'appetizer_id' => 'nullable|uuid|exists:dishes,id',
-            'main_dish_id' => 'nullable|uuid|exists:dishes,id',
-            'drink_id' => 'nullable|uuid|exists:dishes,id',
-            'price' => 'sometimes|required|numeric|min:0',
+            // Un plato que ya estaba en el menú se acepta aunque luego se haya desactivado
+            'appetizer_id' => ['nullable', 'uuid', $this->activeDishOfCategory('appetizer', $menu->appetizer_id)],
+            'main_dish_id' => ['sometimes', 'required', 'uuid', $this->activeDishOfCategory('main', $menu->main_dish_id)],
+            'drink_id' => ['nullable', 'uuid', $this->activeDishOfCategory('drink', $menu->drink_id)],
+            'price' => 'sometimes|required|numeric|gt:0',
             'stock' => 'sometimes|required|integer|min:0',
             'is_active' => 'sometimes|boolean',
-        ]);
+        ], $this->menuMessages());
 
         if ($validator->fails()) {
             return response()->json([
@@ -321,6 +335,12 @@ class AdminController extends Controller
         $validator = Validator::make($request->all(), [
             'stock' => 'required|integer|min:0',
             'reason' => 'required|string|max:255',
+        ], [
+            'stock.required' => 'El stock es obligatorio.',
+            'stock.integer' => 'El stock debe ser un número entero.',
+            'stock.min' => 'El stock no puede ser negativo.',
+            'reason.required' => 'Indica el motivo del cambio de stock.',
+            'reason.max' => 'El motivo no puede superar los 255 caracteres.',
         ]);
 
         if ($validator->fails()) {
@@ -361,28 +381,86 @@ class AdminController extends Controller
     // GESTIÓN DE RESERVAS
     // ==========================================
     
+    /**
+     * Reservas de un día (por defecto, hoy) para el despacho, con el resumen por estado (RF-012)
+     * GET /api/admin/reservations?date=YYYY-MM-DD&status=pending
+     */
     public function getAllReservations(Request $request)
     {
-        $query = Reservation::with(['user', 'menu.appetizer', 'menu.mainDish', 'menu.drink', 'payment']);
+        $validator = Validator::make($request->all(), [
+            'date' => 'sometimes|date',
+            'status' => 'sometimes|in:pending,delivered,cancelled,expired',
+        ], [
+            'date.date' => 'La fecha no es válida.',
+            'status.in' => 'El estado no es válido.',
+        ]);
 
-        if ($request->has('date_from')) {
-            $query->whereDate('reservation_date', '>=', $request->date_from);
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error de validación',
+                'errors' => $validator->errors()
+            ], 422);
         }
 
-        if ($request->has('date_to')) {
-            $query->whereDate('reservation_date', '<=', $request->date_to);
-        }
+        $date = $request->filled('date') ? Carbon::parse($request->date)->toDateString() : now()->toDateString();
 
-        if ($request->has('status')) {
-            $query->where('status', $request->status);
-        }
+        $dayReservations = Reservation::with(['user', 'menu.appetizer', 'menu.mainDish', 'menu.drink'])
+            ->whereDate('reservation_date', $date)
+            ->orderBy('pickup_time_slot')
+            ->orderBy('created_at')
+            ->get();
 
-        $reservations = $query->orderBy('created_at', 'desc')->paginate(50);
+        // El resumen cuenta todo el día, aunque la lista venga filtrada por estado
+        $summary = [
+            'total' => $dayReservations->count(),
+            'pending' => $dayReservations->where('status', 'pending')->count(),
+            'delivered' => $dayReservations->where('status', 'delivered')->count(),
+            'cancelled' => $dayReservations->where('status', 'cancelled')->count(),
+            'expired' => $dayReservations->where('status', 'expired')->count(),
+        ];
+
+        $list = $request->filled('status') ? $dayReservations->where('status', $request->status) : $dayReservations;
 
         return response()->json([
             'success' => true,
-            'data' => $reservations
+            'data' => [
+                'date' => $date,
+                'reservations' => $list->values()->map(fn ($r) => $this->formatAdminReservation($r)),
+                'summary' => $summary,
+            ]
         ]);
+    }
+
+    // Reserva tal como la usa el panel: usuario, turno, pago y nombres de los platos
+    private function formatAdminReservation(Reservation $reservation): array
+    {
+        $menu = $reservation->menu;
+
+        return [
+            'id' => $reservation->id,
+            'code' => $reservation->code,
+            'status' => $reservation->status,
+            'reservation_date' => $reservation->reservation_date->format('Y-m-d'),
+            'pickup_time_slot' => $reservation->pickup_time_slot?->format('H:i'),
+            'pickup_window_end' => $reservation->pickup_window_end?->format('H:i'),
+            'payment_method' => $reservation->payment_method,
+            'payment_status' => $reservation->payment_status,
+            'created_at' => $reservation->created_at?->toIso8601String(),
+            'delivered_at' => $reservation->delivered_at?->toIso8601String(),
+            'user' => [
+                'id' => $reservation->user?->id,
+                'full_name' => $reservation->user?->full_name,
+                'email' => $reservation->user?->email,
+            ],
+            'menu' => [
+                'id' => $menu?->id,
+                'price' => (string) ($menu?->price ?? 0),
+                'appetizer' => $menu?->appetizer?->name,
+                'main_dish' => $menu?->mainDish?->name,
+                'drink' => $menu?->drink?->name,
+            ],
+        ];
     }
 
     public function todayReservations()
@@ -424,7 +502,7 @@ class AdminController extends Controller
         if ($reservation->status !== 'pending') {
             return response()->json([
                 'success' => false,
-                'message' => 'La reserva no está en estado pendiente'
+                'message' => $this->deliveryBlockedMessage($reservation)
             ], 400);
         }
 
@@ -433,7 +511,7 @@ class AdminController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Reserva marcada como entregada',
-            'data' => ['reservation' => $reservation->fresh()]
+            'data' => ['reservation' => $this->formatAdminReservation($reservation->fresh(['user', 'menu.appetizer', 'menu.mainDish', 'menu.drink']))]
         ]);
     }
 
@@ -482,14 +560,16 @@ class AdminController extends Controller
             ], 422);
         }
 
-        $query = Reservation::with(['user', 'menu'])
+        $reservations = Reservation::with(['user', 'menu.appetizer', 'menu.mainDish', 'menu.drink'])
             ->whereDate('reservation_date', '>=', $request->date_from)
-            ->whereDate('reservation_date', '<=', $request->date_to);
+            ->whereDate('reservation_date', '<=', $request->date_to)
+            ->orderBy('reservation_date', 'desc')
+            ->orderBy('pickup_time_slot', 'desc')
+            ->get();
 
-        $reservations = $query->get();
-
-        $totalReservations = $reservations->count();
-        $totalRevenue = $reservations->sum(fn($r) => $r->menu->price);
+        // Solo las reservas vigentes generan ingreso: las canceladas y vencidas no
+        $counted = $reservations->whereNotIn('status', ['cancelled', 'expired']);
+        $totalRevenue = $counted->sum(fn($r) => $r->menu->price);
 
         return response()->json([
             'success' => true,
@@ -499,14 +579,16 @@ class AdminController extends Controller
                     'to' => $request->date_to,
                 ],
                 'summary' => [
-                    'total_reservations' => $totalReservations,
+                    'total_reservations' => $reservations->count(),
+                    'counted_reservations' => $counted->count(),
                     'total_revenue' => $totalRevenue,
-                    'average_reservation_value' => $totalReservations > 0 ? $totalRevenue / $totalReservations : 0,
+                    'average_reservation_value' => $counted->count() > 0 ? $totalRevenue / $counted->count() : 0,
                 ],
                 'status_breakdown' => [
                     'pending' => $reservations->where('status', 'pending')->count(),
                     'delivered' => $reservations->where('status', 'delivered')->count(),
                     'cancelled' => $reservations->where('status', 'cancelled')->count(),
+                    'expired' => $reservations->where('status', 'expired')->count(),
                 ],
                 'payment_methods' => [
                     'cash' => $reservations->where('payment_method', 'cash')->count(),
@@ -514,7 +596,7 @@ class AdminController extends Controller
                     'plin' => $reservations->where('payment_method', 'plin')->count(),
                     'credit_card' => $reservations->where('payment_method', 'credit_card')->count(),
                 ],
-                'reservations' => $reservations,
+                'reservations' => $reservations->map(fn ($r) => $this->formatAdminReservation($r))->values(),
             ]
         ]);
     }
@@ -524,6 +606,10 @@ class AdminController extends Controller
         $validator = Validator::make($request->all(), [
             'date_from' => 'required|date',
             'date_to' => 'required|date|after_or_equal:date_from',
+            'group_by' => 'sometimes|in:day,week,month',
+        ], [
+            'date_to.after_or_equal' => 'La fecha final no puede ser anterior a la inicial.',
+            'group_by.in' => 'Agrupa por día, semana o mes.',
         ]);
 
         if ($validator->fails()) {
@@ -534,21 +620,29 @@ class AdminController extends Controller
             ], 422);
         }
 
+        $groupBy = $request->get('group_by', 'day');
+
+        // Ventas diarias, semanales o mensuales (ERS): solo reservas vigentes
         $reservations = Reservation::with(['menu'])
+            ->counted()
             ->whereDate('reservation_date', '>=', $request->date_from)
             ->whereDate('reservation_date', '<=', $request->date_to)
-            ->where('status', '!=', 'cancelled')
             ->get();
 
-        $dailySales = $reservations->groupBy(function($r) {
-            return $r->reservation_date->format('Y-m-d');
-        })->map(function($dayReservations) {
-            return [
-                'date' => $dayReservations->first()->reservation_date->format('Y-m-d'),
-                'total_reservations' => $dayReservations->count(),
-                'total_revenue' => $dayReservations->sum(fn($r) => $r->menu->price),
-            ];
-        })->values();
+        $sales = $reservations
+            ->groupBy(fn ($r) => match ($groupBy) {
+                // Semana: se identifica por su lunes
+                'week' => $r->reservation_date->copy()->startOfWeek()->format('Y-m-d'),
+                'month' => $r->reservation_date->format('Y-m'),
+                default => $r->reservation_date->format('Y-m-d'),
+            })
+            ->map(fn ($group, $period) => [
+                'period' => (string) $period,
+                'total_reservations' => $group->count(),
+                'total_revenue' => $group->sum(fn ($r) => $r->menu->price),
+            ])
+            ->sortKeys()
+            ->values();
 
         return response()->json([
             'success' => true,
@@ -557,7 +651,8 @@ class AdminController extends Controller
                     'from' => $request->date_from,
                     'to' => $request->date_to,
                 ],
-                'daily_sales' => $dailySales,
+                'group_by' => $groupBy,
+                'sales' => $sales,
                 'total_revenue' => $reservations->sum(fn($r) => $r->menu->price),
                 'total_reservations' => $reservations->count(),
             ]
@@ -594,12 +689,81 @@ class AdminController extends Controller
             $query->whereDate('created_at', '<=', $request->date_to);
         }
 
-        $audits = $query->orderBy('created_at', 'desc')->get();
+        // Los 100 cambios más recientes: el historial de un menú no necesita más
+        $audits = $query->orderBy('created_at', 'desc')->limit(100)->get();
 
         return response()->json([
             'success' => true,
             'data' => ['audits' => $audits]
         ]);
+    }
+
+    // ==========================================
+    // VALIDACIONES DE PLATOS Y MENÚS
+    // ==========================================
+
+    // El nombre del plato debe ser único (sin distinguir mayúsculas)
+    private function uniqueDishName(?string $ignoreId = null): \Closure
+    {
+        return function ($attribute, $value, $fail) use ($ignoreId) {
+            $exists = Dish::whereRaw('LOWER(name) = ?', [mb_strtolower(trim((string) $value))])
+                ->when($ignoreId, fn ($query) => $query->where('id', '!=', $ignoreId))
+                ->exists();
+
+            if ($exists) {
+                $fail('Ya existe un plato con ese nombre.');
+            }
+        };
+    }
+
+    // Combinación válida de un menú: el plato existe, es de la categoría que corresponde y está activo
+    private function activeDishOfCategory(string $category, ?string $currentId = null): \Closure
+    {
+        $labels = ['appetizer' => 'Entrada', 'main' => 'Plato Principal', 'drink' => 'Bebida'];
+
+        return function ($attribute, $value, $fail) use ($category, $currentId, $labels) {
+            if ($value === null) {
+                return;
+            }
+
+            $dish = Dish::find($value);
+
+            if (!$dish) {
+                $fail('El plato seleccionado no existe.');
+            } elseif ($dish->category !== $category) {
+                $fail("El plato «{$dish->name}» no es de la categoría {$labels[$category]}.");
+            } elseif (!$dish->is_active && $value !== $currentId) {
+                $fail("El plato «{$dish->name}» está inactivo.");
+            }
+        };
+    }
+
+    private function dishMessages(): array
+    {
+        return [
+            'name.required' => 'El nombre es obligatorio.',
+            'category.required' => 'Selecciona la categoría.',
+            'category.in' => 'La categoría debe ser Entrada, Principal o Bebida.',
+            'price.required' => 'El precio es obligatorio.',
+            'price.numeric' => 'El precio debe ser un número.',
+            'price.gt' => 'El precio debe ser mayor a 0.',
+            'image_url.url' => 'La imagen debe ser un enlace válido (https://...).',
+        ];
+    }
+
+    private function menuMessages(): array
+    {
+        return [
+            'date.required' => 'Selecciona una fecha.',
+            'date.after_or_equal' => 'La fecha no puede ser anterior a hoy.',
+            'main_dish_id.required' => 'Selecciona el plato principal.',
+            'price.required' => 'El precio es obligatorio.',
+            'price.numeric' => 'El precio debe ser un número.',
+            'price.gt' => 'El precio debe ser mayor a 0.',
+            'stock.required' => 'El stock es obligatorio.',
+            'stock.integer' => 'El stock debe ser un número entero.',
+            'stock.min' => 'El stock no puede ser negativo.',
+        ];
     }
 
     // ==========================================
@@ -659,51 +823,50 @@ class AdminController extends Controller
             ], 422);
         }
 
-        try {
-            $reservation = Reservation::with(['user', 'menu.appetizer', 'menu.mainDish', 'menu.drink'])
-                ->where('code', $request->code)
-                ->firstOrFail();
+        // Se ignoran espacios y mayúsculas/minúsculas: el código se puede escribir a mano
+        $code = strtoupper(trim($request->code));
 
-            if ($reservation->status !== 'pending') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'La reserva no está en estado pendiente',
-                    'data' => [
-                        'reservation' => $reservation,
-                        'current_status' => $reservation->status
-                    ]
-                ], 400);
-            }
+        $reservation = Reservation::with(['user', 'menu.appetizer', 'menu.mainDish', 'menu.drink'])
+            ->where('code', $code)
+            ->first();
 
-            $reservation->markAsDelivered();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Reserva entregada exitosamente',
-                'data' => [
-                    'reservation' => [
-                        'id' => $reservation->id,
-                        'code' => $reservation->code,
-                        'user' => [
-                            'name' => $reservation->user->full_name,
-                            'email' => $reservation->user->email,
-                        ],
-                        'menu' => [
-                            'appetizer' => $reservation->menu->appetizer?->name,
-                            'main_dish' => $reservation->menu->mainDish?->name,
-                            'drink' => $reservation->menu->drink?->name,
-                        ],
-                        'pickup_time_slot' => $reservation->pickup_time_slot->format('H:i'),
-                        'delivered_at' => $reservation->delivered_at->format('Y-m-d H:i:s'),
-                    ]
-                ]
-            ]);
-
-        } catch (\Exception $e) {
+        if (!$reservation) {
             return response()->json([
                 'success' => false,
-                'message' => 'Código no encontrado o inválido'
+                'message' => 'Código no encontrado. Revisa que esté bien escrito.'
             ], 404);
         }
+
+        if ($reservation->status !== 'pending') {
+            return response()->json([
+                'success' => false,
+                'message' => $this->deliveryBlockedMessage($reservation),
+                'data' => [
+                    'reservation' => $this->formatAdminReservation($reservation),
+                    'current_status' => $reservation->status
+                ]
+            ], 400);
+        }
+
+        $reservation->markAsDelivered();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Reserva entregada exitosamente',
+            'data' => [
+                'reservation' => $this->formatAdminReservation($reservation->fresh(['user', 'menu.appetizer', 'menu.mainDish', 'menu.drink'])),
+            ]
+        ]);
+    }
+
+    // Por qué una reserva no se puede entregar (no se puede entregar dos veces la misma, RF-013)
+    private function deliveryBlockedMessage(Reservation $reservation): string
+    {
+        return match ($reservation->status) {
+            'delivered' => 'Esta reserva ya fue entregada' . ($reservation->delivered_at ? ' a las ' . $reservation->delivered_at->format('H:i') : '') . '.',
+            'cancelled' => 'Esta reserva fue cancelada.',
+            'expired' => 'Esta reserva venció: no se recogió dentro de su turno.',
+            default => 'La reserva no está pendiente.',
+        };
     }
 }

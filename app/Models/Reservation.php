@@ -83,6 +83,12 @@ class Reservation extends Model
         return $query->where('status', 'expired');
     }
 
+    // Reservas que cuentan para el negocio: las canceladas y las vencidas (no recogidas) no generan ingreso
+    public function scopeCounted($query)
+    {
+        return $query->whereNotIn('status', ['cancelled', 'expired']);
+    }
+
     public function scopeByTimeSlot($query, $timeSlot)
     {
         return $query->where('pickup_time_slot', $timeSlot);
@@ -94,6 +100,12 @@ class Reservation extends Model
             return null;
         }
         return asset('storage/' . $this->qr_code_path);
+    }
+
+    // Fin del turno de recojo: el turno dura TimeSlotService::SLOT_INTERVAL_MINUTES
+    public function getPickupWindowEndAttribute()
+    {
+        return $this->pickup_time_slot?->copy()->addMinutes(\App\Services\TimeSlotService::SLOT_INTERVAL_MINUTES);
     }
 
     public function isExpired()
@@ -110,10 +122,37 @@ class Reservation extends Model
 
     public function markAsDelivered()
     {
-        $this->status = 'delivered';
-        $this->delivered_at = now();
-        $this->save();
-        
+        $paidNow = null;
+
+        \DB::transaction(function () use (&$paidNow) {
+            $this->status = 'delivered';
+            $this->delivered_at = now();
+
+            // Con pago en efectivo el cobro ocurre al entregar: queda registrado como pagado
+            if ($this->payment_status !== 'paid') {
+                $this->payment_status = 'paid';
+
+                $payment = $this->payment ?? new Payment([
+                    'reservation_id' => $this->id,
+                    'amount' => $this->menu->price,
+                    'method' => $this->payment_method ?? 'cash',
+                ]);
+                $payment->status = 'completed';
+                $payment->paid_at = now();
+                $payment->expires_at = null;
+                $payment->transaction_code = $payment->transaction_code ?: 'CASH-' . strtoupper(Str::random(10));
+                $payment->save();
+                $paidNow = $payment->id;
+            }
+
+            $this->save();
+        });
+
+        // Se cobró al entregar: confirmación de pago por correo (RF-014)
+        if ($paidNow) {
+            \App\Jobs\SendPaymentConfirmationEmail::dispatch($paidNow);
+        }
+
         return $this;
     }
 

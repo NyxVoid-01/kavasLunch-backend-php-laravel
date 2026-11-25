@@ -28,6 +28,8 @@ Route::prefix('public')->group(function () {
 Route::prefix('auth')->group(function () {
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:5,1');
+    Route::post('/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:10,1');
 });
 
 // ==========================================
@@ -64,6 +66,7 @@ Route::middleware('auth:api')->group(function () {
         
         // Pagos
         Route::get('/payment/methods', [PaymentController::class, 'getPaymentMethods']);
+        Route::post('/payment/request', [PaymentController::class, 'requestPayment']);
         Route::post('/payment/process', [PaymentController::class, 'processPayment']);
     });
     

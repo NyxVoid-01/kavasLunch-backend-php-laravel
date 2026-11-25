@@ -10,6 +10,9 @@ class DailyMenu extends Model
 {
     use HasFactory, HasUuids;
 
+    // Con este stock o menos, el menú se considera "con pocas unidades" (alerta del panel y filtro público)
+    const LOW_STOCK_THRESHOLD = 10;
+
     protected $fillable = [
         'date',
         'appetizer_id',

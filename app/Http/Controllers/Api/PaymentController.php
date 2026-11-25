@@ -3,23 +3,38 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SendPaymentConfirmationEmail;
 use App\Models\Payment;
 use App\Models\Reservation;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Str;
 
+/**
+ * Pasarela de pagos SIMULADA (RF-014). No se cobran montos reales ni se capturan datos de tarjeta.
+ *  - Yape / Plin y tarjeta: se genera una solicitud de pago que vence a los 3 minutos
+ *    (POST /payment/request). El pago solo se acepta si se confirma dentro de ese plazo
+ *    (POST /payment/process). Al confirmarse se envía el correo de confirmación de pago.
+ *  - Efectivo: queda pendiente y se cobra en el comedor al entregar el pedido; en ese momento
+ *    se envía la confirmación de pago.
+ */
 class PaymentController extends Controller
 {
-    public function processPayment(Request $request)
+    private const METHODS = ['yape', 'plin', 'credit_card', 'cash'];
+    private const ONLINE_METHODS = ['yape', 'plin', 'credit_card'];
+
+    /**
+     * Generar la solicitud de pago (Yape/Plin o tarjeta). Vence a los 3 minutos.
+     * POST /api/user/payment/request
+     */
+    public function requestPayment(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'reservation_id' => 'required|uuid|exists:reservations,id',
-            'payment_method' => 'required|in:yape,plin,credit_card,cash',
-            'payment_proof_url' => 'required_if:payment_method,yape,plin|url',
-            'card_number' => 'required_if:payment_method,credit_card|string|size:16',
-            'card_expiry' => 'required_if:payment_method,credit_card|string',
-            'card_cvv' => 'required_if:payment_method,credit_card|string|size:3',
+            'payment_method' => 'required|in:' . implode(',', self::ONLINE_METHODS),
+        ], [
+            'payment_method.in' => 'La solicitud de pago solo aplica a Yape/Plin o tarjeta.',
         ]);
 
         if ($validator->fails()) {
@@ -30,151 +45,232 @@ class PaymentController extends Controller
             ], 422);
         }
 
-        try {
-            $reservation = Reservation::findOrFail($request->reservation_id);
-            $user = auth('api')->user();
+        $reservation = Reservation::with('menu')->findOrFail($request->reservation_id);
+        if ($error = $this->payableError($reservation)) {
+            return $error;
+        }
 
-            // Verificar que la reserva pertenece al usuario
-            if ($reservation->user_id !== $user->id) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'No autorizado para procesar pago de esta reserva'
-                ], 403);
-            }
+        $method = $request->payment_method;
 
-            // Simular procesamiento de pago según el método
-            $paymentStatus = $this->simulatePaymentProcessing($request->payment_method, $request->all());
-
-            if ($paymentStatus['success']) {
-                // Crear registro de pago
-                $payment = Payment::create([
-                    'reservation_id' => $reservation->id,
+        $payment = DB::transaction(function () use ($reservation, $method) {
+            // Un solo registro de pago por reserva: una nueva solicitud reemplaza a la anterior
+            $payment = Payment::updateOrCreate(
+                ['reservation_id' => $reservation->id],
+                [
                     'amount' => $reservation->menu->price,
-                    'method' => $request->payment_method,
-                    'status' => 'completed',
-                    'transaction_code' => $paymentStatus['transaction_code'],
-                    'payment_proof_url' => $request->payment_proof_url ?? null,
-                ]);
+                    'method' => $method,
+                    'status' => 'pending',
+                    'transaction_code' => $this->transactionCode($method),
+                    'expires_at' => now()->addMinutes(Payment::PAYMENT_WINDOW_MINUTES),
+                    'paid_at' => null,
+                ]
+            );
 
-                // Actualizar estado de la reserva
-                $reservation->update([
-                    'payment_status' => 'paid',
-                    'payment_method' => $request->payment_method,
-                ]);
+            $reservation->update(['payment_method' => $method, 'payment_status' => 'pending']);
 
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Pago procesado exitosamente',
-                    'data' => [
-                        'payment' => $payment,
-                        'reservation' => $reservation->fresh(['menu.appetizer', 'menu.mainDish', 'menu.drink'])
-                    ]
-                ]);
-            } else {
-                return response()->json([
-                    'success' => false,
-                    'message' => $paymentStatus['message']
-                ], 400);
-            }
+            return $payment;
+        });
 
-        } catch (\Exception $e) {
+        return response()->json([
+            'success' => true,
+            'message' => 'Solicitud de pago generada. Confírmala dentro de ' . Payment::PAYMENT_WINDOW_MINUTES . ' minutos.',
+            'data' => ['payment_request' => $this->formatRequest($payment)],
+        ], 201);
+    }
+
+    /**
+     * Confirmar el pago de una reserva
+     * POST /api/user/payment/process
+     */
+    public function processPayment(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'reservation_id' => 'required|uuid|exists:reservations,id',
+            'payment_method' => 'required|in:' . implode(',', self::METHODS),
+            'payment_proof_url' => 'nullable|url|max:2048',
+        ]);
+
+        if ($validator->fails()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error al procesar el pago',
-                'error' => $e->getMessage()
-            ], 500);
+                'message' => 'Error de validación',
+                'errors' => $validator->errors()
+            ], 422);
         }
-    }
 
-    private function simulatePaymentProcessing($method, $data)
-    {
-        switch ($method) {
-            case 'yape':
-            case 'plin':
-                // Simular número para pago
-                $phoneNumber = '9' . rand(10000000, 99999999);
-                // Simular verificación (en realidad esperaríamos un webhook)
-                sleep(2); // Simular delay de verificación
-                
-                return [
-                    'success' => true,
-                    'transaction_code' => 'YAPE-' . strtoupper(uniqid()),
-                    'message' => 'Pago verificado exitosamente'
-                ];
+        $reservation = Reservation::with(['menu', 'payment'])->findOrFail($request->reservation_id);
+        if ($error = $this->payableError($reservation)) {
+            return $error;
+        }
 
-            case 'credit_card':
-                // Validación básica de tarjeta (simulada)
-                $cardNumber = $data['card_number'];
-                $expiry = $data['card_expiry'];
-                $cvv = $data['card_cvv'];
+        $method = $request->payment_method;
+        $isCash = $method === 'cash';
 
-                // Simular validación
-                if (strlen($cardNumber) === 16 && 
-                    preg_match('/^(0[1-9]|1[0-2])\/?([0-9]{2})$/', $expiry) &&
-                    strlen($cvv) === 3) {
-                    
-                    sleep(3); // Simular procesamiento
-                    
-                    return [
-                        'success' => true,
-                        'transaction_code' => 'CC-' . strtoupper(uniqid()),
-                        'message' => 'Pago con tarjeta procesado exitosamente'
-                    ];
-                } else {
-                    return [
-                        'success' => false,
-                        'message' => 'Datos de tarjeta inválidos'
-                    ];
-                }
+        // Yape/Plin y tarjeta: solo se acepta la solicitud vigente del mismo método (máximo 3 minutos)
+        if (!$isCash) {
+            $current = $reservation->payment;
 
-            case 'cash':
-                // Para efectivo, solo crear el registro
-                return [
-                    'success' => true,
-                    'transaction_code' => 'CASH-' . strtoupper(uniqid()),
-                    'message' => 'Pago en efectivo registrado'
-                ];
-
-            default:
-                return [
+            if ($current && $current->status === 'pending' && $current->expires_at && $current->method !== $method) {
+                return response()->json([
                     'success' => false,
-                    'message' => 'Método de pago no soportado'
-                ];
+                    'message' => 'La solicitud de pago es para ' . Payment::methodLabel($current->method) . '. Genera una nueva para cambiar de método.',
+                    'error' => 'payment_request_method_mismatch',
+                ], 422);
+            }
+
+            if (!$current || $current->status !== 'pending' || !$current->expires_at) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Primero genera la solicitud de pago.',
+                    'error' => 'payment_request_missing',
+                ], 422);
+            }
+
+            if ($current->isExpired()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'La solicitud de pago venció: el pago debe confirmarse dentro de ' . Payment::PAYMENT_WINDOW_MINUTES . ' minutos. Genera una nueva solicitud.',
+                    'error' => 'payment_request_expired',
+                ], 422);
+            }
         }
+
+        $payment = DB::transaction(function () use ($reservation, $request, $method, $isCash) {
+            $payment = Payment::updateOrCreate(
+                ['reservation_id' => $reservation->id],
+                $isCash
+                    // Efectivo se cobra al entregar: sin plazo, queda pendiente
+                    ? [
+                        'amount' => $reservation->menu->price,
+                        'method' => 'cash',
+                        'status' => 'pending',
+                        'transaction_code' => $this->transactionCode('cash'),
+                        'expires_at' => null,
+                        'paid_at' => null,
+                        'payment_proof_url' => $request->payment_proof_url,
+                    ]
+                    : [
+                        'status' => 'completed',
+                        'paid_at' => now(),
+                        'payment_proof_url' => $request->payment_proof_url,
+                    ]
+            );
+
+            $reservation->update([
+                'payment_status' => $isCash ? 'pending' : 'paid',
+                'payment_method' => $method,
+            ]);
+
+            return $payment;
+        });
+
+        // Confirmación de pago por correo (RF-014: dentro de 2 minutos; la cola la envía al instante)
+        if (!$isCash) {
+            SendPaymentConfirmationEmail::dispatch($payment->id);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => $isCash ? 'Pago en efectivo registrado: pagarás al recoger tu pedido' : 'Pago confirmado. Te enviamos la confirmación por correo.',
+            'data' => [
+                'payment' => $payment->fresh(),
+                'reservation' => $reservation->fresh(['menu.appetizer', 'menu.mainDish', 'menu.drink'])
+            ]
+        ]);
     }
 
+    // Solo el dueño puede pagar, y solo una reserva pendiente que aún no se pagó
+    private function payableError(Reservation $reservation)
+    {
+        if ($reservation->user_id !== auth('api')->id()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No autorizado para procesar pago de esta reserva'
+            ], 403);
+        }
+
+        if ($reservation->status !== 'pending') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Solo se puede pagar una reserva pendiente'
+            ], 422);
+        }
+
+        if ($reservation->payment_status === 'paid') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Esta reserva ya fue pagada'
+            ], 422);
+        }
+
+        return null;
+    }
+
+    private function formatRequest(Payment $payment): array
+    {
+        return [
+            'id' => $payment->id,
+            'reservation_id' => $payment->reservation_id,
+            'method' => $payment->method,
+            'amount' => $payment->amount,
+            'transaction_code' => $payment->transaction_code,
+            'expires_at' => $payment->expires_at?->toIso8601String(),
+            // El frontend cuenta desde aquí para no depender del reloj del dispositivo
+            'expires_in_seconds' => max(0, (int) now()->diffInSeconds($payment->expires_at, false)),
+            'window_minutes' => Payment::PAYMENT_WINDOW_MINUTES,
+            'phone' => in_array($payment->method, ['yape', 'plin'], true) ? config('services.payments.yape_number') : null,
+        ];
+    }
+
+    private function transactionCode(string $method): string
+    {
+        $prefix = match ($method) {
+            'yape', 'plin' => 'YAPE',
+            'credit_card' => 'CC',
+            default => 'CASH',
+        };
+
+        return $prefix . '-' . strtoupper(Str::random(12));
+    }
+
+    /**
+     * Métodos de pago disponibles
+     * GET /api/user/payment/methods
+     */
     public function getPaymentMethods()
     {
+        $window = Payment::PAYMENT_WINDOW_MINUTES;
+
         $methods = [
             [
-                'value' => 'yape',
-                'label' => 'Yape',
-                'description' => 'Pago con Yape',
-                'instructions' => 'Se generará un número al cual enviar el pago'
+                'id' => 'yape',
+                'name' => 'Yape / Plin',
+                'description' => 'Pago móvil instantáneo',
+                'instructions' => "Al confirmar se genera la solicitud de pago: envía el monto a este número y confírmalo dentro de {$window} minutos",
+                'phone' => config('services.payments.yape_number'),
+                'enabled' => true,
             ],
             [
-                'value' => 'plin',
-                'label' => 'Plin',
-                'description' => 'Pago con Plin',
-                'instructions' => 'Se generará un número al cual enviar el pago'
+                'id' => 'credit_card',
+                'name' => 'Tarjeta',
+                'description' => 'Crédito/Débito',
+                'instructions' => "Al confirmar se genera la solicitud de pago: confírmala dentro de {$window} minutos",
+                'phone' => null,
+                'enabled' => true,
             ],
             [
-                'value' => 'credit_card',
-                'label' => 'Tarjeta de Crédito',
-                'description' => 'Pago con tarjeta de crédito',
-                'instructions' => 'Ingresa los datos de tu tarjeta'
+                'id' => 'cash',
+                'name' => 'Efectivo',
+                'description' => 'Pago en caja',
+                'instructions' => 'Pagarás al momento de recoger tu pedido',
+                'phone' => null,
+                'enabled' => true,
             ],
-            [
-                'value' => 'cash',
-                'label' => 'Efectivo',
-                'description' => 'Pagar en el comedor',
-                'instructions' => 'Presenta el código en caja para pagar'
-            ]
         ];
 
         return response()->json([
             'success' => true,
-            'data' => ['payment_methods' => $methods]
+            'data' => ['methods' => $methods]
         ]);
     }
 }

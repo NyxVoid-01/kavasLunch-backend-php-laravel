@@ -12,21 +12,22 @@ class TimeSlotService
     // Constantes de configuración
     const OPENING_HOUR = 11; // 11:00 AM
     const CLOSING_HOUR = 15; // 3:00 PM
-    const SLOT_INTERVAL_MINUTES = 15;
-    const MAX_CAPACITY_PER_SLOT = 10;
-    const EXPIRATION_MINUTES = 15; // Tiempo después del slot para expirar
-    
+    const SLOT_INTERVAL_MINUTES = 60; // Cada turno dura una hora: 11, 12, 13 y 14 h
+    const MAX_CAPACITY_PER_SLOT = 20;
+    // La reserva vence al terminar su turno (después, el stock se libera)
+    const EXPIRATION_MINUTES = self::SLOT_INTERVAL_MINUTES;
+
     /**
      * Generar todos los time slots para una fecha específica
-     * 
+     *
      * @param Carbon $date
      * @return Collection
      */
     public function generateSlotsForDate(Carbon $date): Collection
     {
         $slots = collect();
-        
-        // Crear slots desde 11:00 AM hasta 3:00 PM en intervalos de 15 minutos
+
+        // Crear los turnos desde 11:00 AM hasta 3:00 PM, uno por hora
         $currentSlot = $date->copy()->setTime(self::OPENING_HOUR, 0, 0);
         $endTime = $date->copy()->setTime(self::CLOSING_HOUR, 0, 0);
         
@@ -64,17 +65,65 @@ class TimeSlotService
         
         // Filtrar slots disponibles
         return $allSlots->filter(function ($slot) use ($date) {
-            // No permitir slots en el pasado
-            if ($slot->isPast()) {
+            // No permitir turnos que ya terminaron (el turno en curso sigue disponible)
+            if ($this->isSlotOver($slot)) {
                 return false;
             }
-            
+
             // Verificar capacidad del slot
             $slotCapacity = $this->getSlotCapacity($slot, $date);
             return $slotCapacity < self::MAX_CAPACITY_PER_SLOT;
         })->values();
     }
-    
+
+    /**
+     * Todos los turnos del día con su disponibilidad, para mostrar también los que
+     * no se pueden elegir (llenos, terminados o fuera de servicio)
+     *
+     * @param string $menuId
+     * @param Carbon $date
+     * @return Collection
+     */
+    public function getSlotsWithAvailability(string $menuId, Carbon $date): Collection
+    {
+        $availableTimes = $this->getAvailableSlots($menuId, $date)
+            ->map(fn ($slot) => $slot->format('H:i'))
+            ->all();
+
+        return $this->generateSlotsForDate($date)->map(function ($slot) use ($date, $availableTimes) {
+            $used = $this->getSlotCapacity($slot, $date);
+
+            return [
+                'slot' => $slot,
+                'available' => in_array($slot->format('H:i'), $availableTimes, true),
+                'capacity_used' => $used,
+                'capacity_available' => max(0, self::MAX_CAPACITY_PER_SLOT - $used),
+            ];
+        });
+    }
+
+    /**
+     * Buscar, entre los turnos disponibles, el que el usuario eligió ('H:i')
+     *
+     * @param string $menuId
+     * @param Carbon $date
+     * @param string $time
+     * @return Carbon|null
+     */
+    public function findAvailableSlot(string $menuId, Carbon $date, string $time): ?Carbon
+    {
+        return $this->getAvailableSlots($menuId, $date)
+            ->first(fn ($slot) => $slot->format('H:i') === $time);
+    }
+
+    /**
+     * ¿Ya terminó el turno? Un turno sigue disponible mientras no termine su hora.
+     */
+    public function isSlotOver(Carbon $slot): bool
+    {
+        return $slot->copy()->addMinutes(self::SLOT_INTERVAL_MINUTES)->isPast();
+    }
+
     /**
      * Asignar automáticamente el siguiente slot disponible
      * 
@@ -103,8 +152,11 @@ class TimeSlotService
      */
     public function getSlotCapacity(Carbon $slot, Carbon $date): int
     {
+        // Comparar solo la hora del datetime (PostgreSQL compatible)
+        $timeString = $slot->format('H:i:s');
+        
         return Reservation::where('reservation_date', $date->toDateString())
-            ->where('pickup_time_slot', $slot)
+            ->whereRaw('CAST(pickup_time_slot AS TIME) = ?', [$timeString])
             ->whereIn('status', ['pending', 'delivered'])
             ->count();
     }

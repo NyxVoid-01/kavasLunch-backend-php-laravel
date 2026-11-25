@@ -5,7 +5,7 @@ Estimado/a {{ $reservation->user->full_name }},
 CÓDIGO DE RESERVA: {{ $reservation->code }}
 
 📅 Detalles de Recojo
-Horario: {{ $reservation->pickup_time_slot->format('h:i A') }} - {{ $reservation->pickup_time_slot->copy()->addMinutes(15)->format('h:i A') }}
+Horario: {{ $reservation->pickup_time_slot->format('h:i A') }} - {{ $reservation->pickup_window_end->format('h:i A') }}
 Fecha: {{ $reservation->reservation_date->format('d/m/Y') }}
 
 🍴 Tu Menú
@@ -16,9 +16,9 @@ Bebida: {{ $reservation->menu->drink?->name ?? 'No especificado' }}
 📋 Instrucciones
 1. Dirígete al comedor universitario
 2. Presenta tu código QR o el código {{ $reservation->code }} en caja
-3. Recoge tu pedido entre {{ $reservation->pickup_time_slot->format('h:i A') }} y {{ $reservation->pickup_time_slot->copy()->addMinutes(15)->format('h:i A') }}
+3. Recoge tu pedido entre {{ $reservation->pickup_time_slot->format('h:i A') }} y {{ $reservation->pickup_window_end->format('h:i A') }}
 
-⚠️ IMPORTANTE: Si no recoges tu pedido dentro de los 15 minutos de tu horario asignado, tu reserva expirará automáticamente y el stock será liberado.
+⚠️ IMPORTANTE: Si no recoges tu pedido dentro de tu horario de recojo, tu reserva expirará automáticamente y el stock será liberado.
 
 ¡Te esperamos!
 

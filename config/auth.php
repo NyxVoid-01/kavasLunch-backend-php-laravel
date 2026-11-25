@@ -40,7 +40,8 @@ return [
 
     'providers' => [
         'users' => [
-            'driver' => 'eloquent',
+            // El correo está cifrado: se busca por su índice ciego (App\Auth\EncryptedEloquentUserProvider)
+            'driver' => 'encrypted-eloquent',
             'model' => App\Models\User::class,
         ],
     ],
